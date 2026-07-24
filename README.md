@@ -1,4 +1,4 @@
-# KQL Detection Arsenal
+# KQL Detection Library
 
 **Azure Sentinel / Microsoft 365 Detection Rules Library** — curated KQL queries for threat detection, threat hunting, and security monitoring in Microsoft cloud environments.
 
