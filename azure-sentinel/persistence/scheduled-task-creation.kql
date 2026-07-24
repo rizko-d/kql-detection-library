@@ -78,4 +78,3 @@ SecurityEvent
         ), "."
     )
 | sort by TimeGenerated desc
-| take 20

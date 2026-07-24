@@ -102,4 +102,3 @@ DeviceProcessEvents
         ParentProcess, "."
     )
 | sort by ObfuscationScore desc
-| take 30

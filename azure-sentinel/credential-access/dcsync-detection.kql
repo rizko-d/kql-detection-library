@@ -87,4 +87,3 @@ union dc_sync_logs, behavior_anomaly, aad_replication
         ". This is consistent with DCSync credential dumping."
     )
 | sort by TimeGenerated desc
-| take 20

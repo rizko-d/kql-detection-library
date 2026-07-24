@@ -86,4 +86,3 @@ failed_logons
         " minutes, followed by ", SuccessCount, " successful logon(s)."
     )
 | sort by FailureCount desc
-| take 20
