@@ -1,0 +1,81 @@
+// === MITRE ATT&CK ===
+// Technique: T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting
+// Tactic: Credential Access
+// Severity: High
+// Data Source: SecurityEvent, IdentityLogonEvents
+//
+// Detects: Anomalous volume of Kerberos TGS-REQ (Event 4769) requests
+// for service accounts from a single source, especially when the
+// service names correspond to high-value targets (MSSQL, HTTP, CIFS, etc.)
+// and the encryption type requested is RC4-HMAC (type 0x17) — the weakest
+// cipher, commonly forced by Kerberoasting tools.
+//
+// False Positives:
+// - Scheduled AD health checks / vulnerability scanners
+// - Service account monitoring tools (SolarWinds, PRTG)
+// - Domain controller default Kerberos activity (baseline required)
+//
+// Recommended Response:
+// 1. Identify the requesting account and workstation / IP
+// 2. Check if the account has history of Kerberoasting tooling (PowerShell, Rubeus)
+// 3. Verify the requesting user/service's purpose with owner
+// 4. Rotate the targeted service account passwords (long, complex, 60+ chars)
+// 5. Enable AES encryption for service accounts; disable RC4 if possible
+// === QUERY ===
+
+let time_window = 1h;
+let request_threshold = 5;
+let sensitive_services = dynamic([
+    "MSSQLSvc", "HTTP", "CIFS", "HOST", "TERMSRV",
+    "WSMAN", "LDAP", "GC", "Exchange", "RPCSS"
+]);
+
+SecurityEvent
+| where TimeGenerated > ago(6h)
+| where EventID == 4769
+    // A Kerberos service ticket was requested
+| where AccountType != "Machine"  // Focus on interactive users
+// Filter for RC4-HMAC (0x17) — Kerberoasting tools frequently request RC4
+| where TicketEncryptionType == "0x17"
+| where ServiceName has_any sensitive_services
+| summarize
+    RequestCount = count(),
+    ServicesTargeted = make_set(ServiceName),
+    FirstRequest = min(TimeGenerated),
+    LastRequest = max(TimeGenerated),
+    TargetDomains = make_set(TargetDomainName)
+    by
+    Account = Account,
+    Computer = Computer,
+    TargetUserName = TargetUserName,
+    IpAddress = IpAddress
+| where RequestCount >= request_threshold
+| extend
+    TimeGenerated = LastRequest,
+    AlertName = "Kerberoasting Detection",
+    Severity = "High",
+    TechniqueId = "T1558.003",
+    TechniqueName = "Steal or Forge Kerberos Tickets: Kerberoasting",
+    Description = strcat(
+        "Account ", Account, " on ", Computer,
+        " requested ", RequestCount, " TGS tickets with RC4 encryption",
+        " targeting ", array_length(ServicesTargeted),
+        " service(s) within ", datetime_diff('minute', LastRequest, FirstRequest),
+        " minutes. Services: ", strcat_array(ServicesTargeted, ", ")
+    )
+| project
+    TimeGenerated,
+    Account,
+    Computer,
+    SourceIp = IpAddress,
+    RequestCount,
+    ServicesTargeted,
+    TargetDomains,
+    FirstRequest,
+    LastRequest,
+    AlertName,
+    Severity,
+    TechniqueId,
+    TechniqueName,
+    Description
+| sort by RequestCount desc

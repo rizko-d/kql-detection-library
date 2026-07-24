@@ -1,0 +1,85 @@
+// === MITRE ATT&CK ===
+// Technique: T1110 — Brute Force
+// Tactic: Credential Access
+// Severity: High
+// Data Source: SigninLogs, AADNonInteractiveUserSignInLogs
+//
+// Detects: Multiple failed RDP / remote logon attempts from the same
+// source IP within a short time window, followed by a successful logon.
+// This pattern is characteristic of password spraying or brute force
+// attacks against RDP, RD Gateway, or Azure AD-joined Windows machines.
+//
+// False Positives:
+// - Terminal Server / Citrix gateways (multi-user NAT)
+// - Load balancer health probes (regular intervals, synthetic accounts)
+// - Aggressive password expiration notifications (user retries)
+//
+// Recommended Response:
+// 1. Verify the source IP reputation (AbuseIPDB, VirusTotal)
+// 2. Check if the user who eventually succeeded is compromised
+// 3. Conditional Access: Block sign-ins from this IP
+// 4. If on-prem: review RD Gateway logs, block IP at firewall
+// === QUERY ===
+
+let time_window = 5m;
+let failure_threshold = 10;
+let success_after_failure = 5;
+
+let failed_logons =
+    SigninLogs
+    | where TimeGenerated > ago(1h)
+    | where ResultType == "50053"  // Account locked
+        or ResultType == "50057"   // User disabled
+        or ResultType == "50126"   // Invalid username/password
+    | where AppDisplayName has_any ("RD", "Remote", "RDP", "Terminal")
+        or UserAgent has_any ("Microsoft Terminal Services", "RDP")
+    | summarize
+        FailureCount = count(),
+        UsersTargeted = make_set(UserPrincipalName),
+        FirstAttempt = min(TimeGenerated),
+        LastAttempt = max(TimeGenerated)
+        by IPAddress = IPAddress, WindowsTenantId
+    | where FailureCount >= failure_threshold;
+
+let successful_logons =
+    SigninLogs
+    | where TimeGenerated > ago(1h)
+    | where ResultType == "0"
+    | where AppDisplayName has_any ("RD", "Remote", "RDP", "Terminal")
+        or UserAgent has_any ("Microsoft Terminal Services", "RDP")
+    | summarize
+        SuccessCount = count(),
+        UsersSuccessful = make_set(UserPrincipalName),
+        FirstSuccess = min(TimeGenerated)
+        by IPAddress = IPAddress;
+
+failed_logons
+| join kind=inner successful_logons on IPAddress
+| where
+    // Successful logon from same IP after failures
+    FirstSuccess between (FirstAttempt .. (LastAttempt + time_window))
+    and SuccessCount <= success_after_failure  // Not a legitimate gateway
+| project
+    TimeGenerated = LastAttempt,
+    SourceIP = IPAddress,
+    TenantId = WindowsTenantId,
+    FailureCount,
+    SuccessCount,
+    UsersTargeted,
+    UsersSuccessful,
+    FirstAttempt,
+    LastAttempt,
+    FirstSuccess
+| extend
+    AlertName = "Brute Force RDP Detection",
+    Severity = "High",
+    TechniqueId = "T1110",
+    TechniqueName = "Brute Force",
+    Description = strcat(
+        "Source IP ", SourceIP, " performed ", FailureCount,
+        " failed RDP logons targeting ", array_length(UsersTargeted),
+        " user(s) within ", datetime_diff('minute', LastAttempt, FirstAttempt),
+        " minutes, followed by ", SuccessCount, " successful logon(s)."
+    )
+| sort by FailureCount desc
+| take 20

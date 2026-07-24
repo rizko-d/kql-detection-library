@@ -1,0 +1,105 @@
+// === MITRE ATT&CK ===
+// Technique: T1059.001 — Command and Scripting Interpreter: PowerShell
+// Tactic: Execution
+// Severity: Medium
+// Data Source: DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: PowerShell commands exhibiting obfuscation patterns
+// commonly used by malware and red-team tooling to bypass execution
+// policy, AMSI, and logging:
+//
+// - Base64-encoded command (-EncodedCommand)
+// - Heavy use of escape characters, backticks, pipes, or variable
+//   substitution in short command lines
+// - Known suspicious parameter combinations
+// - Download cradle patterns (IEX, Invoke-WebRequest, Net.WebClient)
+// - AMSI bypass attempts
+//
+// False Positives:
+// - Legitimate automation scripts that use Base64 encoding
+// - SCCM / Intune management scripts (review ParentProcess)
+// - Developer workflows with package managers (Choco, PSGallery)
+//
+// Recommended Response:
+// 1. Review the full command line and parent process
+// 2. Check if the PowerShell process was launched by Office apps (macro)
+// 3. Correlate with network logs for outbound connections
+// 4. Isolate the host if malware execution is confirmed
+// 5. Enable PowerShell Script Block Logging (Event 4104) for future visibility
+// === QUERY ===
+
+let obfuscation_patterns = dynamic([
+    " -EncodedCommand ",
+    " -E ",
+    " -en ",
+    " -enc ",
+    " -ec ",
+    "IEX(",
+    "IEX (",
+    "Invoke-Expression",
+    "Invoke-WebRequest",
+    ".DownloadString(",
+    ".DownloadFile(",
+    "System.Net.WebClient",
+    "-WindowStyle Hidden",
+    "-ExecutionPolicy Bypass",
+    " -W Hidden ",
+    " -W 1 ",
+    " -W 2 ",
+    " -NoP ",
+    " -NoProfile ",
+    " -NonI ",
+    " -NonInteractive ",
+    '"$(',
+    "'$(",
+    '/e:',
+    ' -w hidden '
+]);
+
+// Common indicators of obfuscation in process command lines
+DeviceProcessEvents
+| where TimeGenerated > ago(1d)
+| where FileName has "powershell"
+    or FileName has "pwsh"
+| where ProcessCommandLine has_any obfuscation_patterns
+| where InitiatingProcessParentFileName !in~ (
+    // Exclude known management tooling noise
+    "explorer.exe",  // User running scripts manually is fine
+    "sccmexec.exe",
+    "ccmexec.exe",
+    "intunemanagementextension.exe"
+)
+// Additional obfuscation scoring: count backticks, excessive quotes
+| extend
+    BacktickCount = countof(ProcessCommandLine, "`", "text"),
+    QuoteCharCount = countof(ProcessCommandLine, '"', "text") +
+                     countof(ProcessCommandLine, "'", "text"),
+    SemicolonCount = countof(ProcessCommandLine, ";", "text"),
+    PipeCount = countof(ProcessCommandLine, "|", "text")
+| extend
+    ObfuscationScore = (BacktickCount > 3) + (QuoteCharCount > 10) +
+                       (SemicolonCount > 5) + (PipeCount > 5) +
+                       (ProcessCommandLine contains " -EncodedCommand ") * 3
+| where ObfuscationScore >= 2
+| project
+    TimeGenerated,
+    ComputerName = DeviceName,
+    AccountName = AccountName,
+    ProcessCommandLine,
+    ParentProcess = InitiatingProcessParentFileName,
+    ParentCommandLine = InitiatingProcessCommandLine,
+    ObfuscationScore,
+    BacktickCount,
+    QuoteCharCount
+| extend
+    AlertName = "PowerShell Obfuscation Detection",
+    Severity = iff(ObfuscationScore >= 5, "High", "Medium"),
+    TechniqueId = "T1059.001",
+    TechniqueName = "Command and Scripting Interpreter: PowerShell",
+    Description = strcat(
+        "PowerShell obfuscation detected on ", ComputerName,
+        " (score: ", ObfuscationScore, "). Parent process: ",
+        ParentProcess, "."
+    )
+| sort by ObfuscationScore desc
+| take 30

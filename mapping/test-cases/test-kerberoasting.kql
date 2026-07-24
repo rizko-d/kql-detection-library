@@ -1,0 +1,35 @@
+// === Test Case: Kerberoasting Detection ===
+// Simulates: Account "REDTEAM\\svc_exploit" requesting 12 TGS tickets
+// with RC4 encryption for sensitive services (MSSQLSvc, HTTP, CIFS)
+//
+// Expected: Rule should fire with RequestCount >= threshold (5)
+// Query expects: SecurityEvent table (EventID 4769)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Account: string,
+    AccountType: string,
+    ServiceName: string,
+    TicketEncryptionType: string,
+    Computer: string,
+    TargetUserName: string,
+    TargetDomainName: string,
+    IpAddress: string
+)
+[
+    datetime(2025-07-24 03:00:00), 4769, "REDTEAM\\svc_exploit", "User", "MSSQLSvc/sql-primary.contoso.com", "0x17", "WS-ATTACK-01", "svc-sql@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:00:10), 4769, "REDTEAM\\svc_exploit", "User", "MSSQLSvc/sql-replica.contoso.com", "0x17", "WS-ATTACK-01", "svc-sql@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:00:20), 4769, "REDTEAM\\svc_exploit", "User", "HTTP/web-prod.contoso.com", "0x17", "WS-ATTACK-01", "svc-web@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:00:30), 4769, "REDTEAM\\svc_exploit", "User", "HTTP/api-prod.contoso.com", "0x17", "WS-ATTACK-01", "svc-api@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:00:40), 4769, "REDTEAM\\svc_exploit", "User", "CIFS/file-prod.contoso.com", "0x17", "WS-ATTACK-01", "svc-files@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:00:50), 4769, "REDTEAM\\svc_exploit", "User", "CIFS/file-replica.contoso.com", "0x17", "WS-ATTACK-01", "svc-files@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:00), 4769, "REDTEAM\\svc_exploit", "User", "TERMSRV/ts-gateway.contoso.com", "0x17", "WS-ATTACK-01", "svc-rdp@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:10), 4769, "REDTEAM\\svc_exploit", "User", "WSMAN/srv-mgmt.contoso.com", "0x17", "WS-ATTACK-01", "svc-mgmt@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:20), 4769, "REDTEAM\\svc_exploit", "User", "LDAP/dc-01.contoso.com", "0x17", "WS-ATTACK-01", "svc-ldap@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:30), 4769, "REDTEAM\\svc_exploit", "User", "MSSQLSvc/sql-dr.contoso.com", "0x17", "WS-ATTACK-01", "svc-sql@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:40), 4769, "REDTEAM\\svc_exploit", "User", "HTTP/app-dev.contoso.com", "0x17", "WS-ATTACK-01", "svc-app@contoso.com", "contoso.com", "10.10.100.50",
+    datetime(2025-07-24 03:01:50), 4769, "REDTEAM\\svc_exploit", "User", "CIFS/build-share.contoso.com", "0x17", "WS-ATTACK-01", "svc-build@contoso.com", "contoso.com", "10.10.100.50",
+];
+
+TestSecurityEvent

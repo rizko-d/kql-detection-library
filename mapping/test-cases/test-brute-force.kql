@@ -1,0 +1,42 @@
+// === Test Case: Brute Force RDP Detection ===
+// Simulates: 15 failed RDP logons from 203.0.113.50, then 2 successful logons
+// Expected: Rule should fire with FailureCount >= threshold (10)
+// Query expects: SigninLogs table (Azure AD Sign-in Logs)
+//
+// To test in Log Analytics, run this table expression:
+// (paste the lines below + the rule from brute-force-rdp.kql)
+
+// Simulated failed logons
+let TestSigninLogs = datatable(
+    TimeGenerated: datetime,
+    ResultType: string,
+    ResultDescription: string,
+    AppDisplayName: string,
+    UserPrincipalName: string,
+    IPAddress: string,
+    UserAgent: string,
+    WindowsTenantId: string
+)
+[
+    // 15 failed attempts from attacker IP
+    datetime(2025-07-24 02:30:00), "50126", "Invalid username/password", "Microsoft Remote Desktop", "jsmith@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:30:05), "50126", "Invalid username/password", "Microsoft Remote Desktop", "jsmith@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:30:10), "50053", "Account locked", "Microsoft Remote Desktop", "jsmith@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:31:00), "50126", "Invalid username/password", "Microsoft Remote Desktop", "akim@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:31:05), "50126", "Invalid username/password", "Microsoft Remote Desktop", "akim@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:31:10), "50126", "Invalid username/password", "Microsoft Remote Desktop", "akim@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:32:00), "50126", "Invalid username/password", "Microsoft Remote Desktop", "bwilson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:32:05), "50126", "Invalid username/password", "Microsoft Remote Desktop", "bwilson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:32:10), "50126", "Invalid username/password", "Microsoft Remote Desktop", "bwilson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:33:00), "50126", "Invalid username/password", "Microsoft Remote Desktop", "lchen@contoso.com", "203.0.113.50", "RDP", "tenant-001",
+    datetime(2025-07-24 02:33:05), "50126", "Invalid username/password", "Microsoft Remote Desktop", "lchen@contoso.com", "203.0.113.50", "RDP", "tenant-001",
+    datetime(2025-07-24 02:33:10), "50126", "Invalid username/password", "Microsoft Remote Desktop", "lchen@contoso.com", "203.0.113.50", "RDP", "tenant-001",
+    datetime(2025-07-24 02:34:00), "50126", "Invalid username/password", "Microsoft Remote Desktop", "mrobinson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:34:05), "50126", "Invalid username/password", "Microsoft Remote Desktop", "mrobinson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:34:10), "50053", "Account locked", "Microsoft Remote Desktop", "mrobinson@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    // 2 successful logons from same IP
+    datetime(2025-07-24 02:35:00), "0", "Success", "Microsoft Remote Desktop", "jsmith@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+    datetime(2025-07-24 02:35:30), "0", "Success", "Microsoft Remote Desktop", "akim@contoso.com", "203.0.113.50", "Microsoft Terminal Services", "tenant-001",
+];
+
+TestSigninLogs

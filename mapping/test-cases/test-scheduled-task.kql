@@ -1,0 +1,40 @@
+// === Test Case: Scheduled Task Persistence ===
+// Simulates: 3 scheduled task creation events —
+//   1) Malicious: task runs as SYSTEM, payload in AppData
+//   2) Suspicious: task in user-writable path
+//   3) Clean: Windows system task (should NOT fire)
+//
+// Expected: Rule should fire on event 1 and 2, skip event 3
+// Query expects: SecurityEvent table (EventID 4698)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    SubjectUserName: string,
+    SubjectLogonId: string,
+    TaskName: string,
+    TaskContent: string,
+    TaskUserSid: string
+)
+[
+    // Malicious: Task runs as SYSTEM, payload in user's AppData
+    datetime(2025-07-24 08:00:00), 4698, "WS-001", "jsmith", "0x123ABC",
+    "\\Microsoft\\Windows\\Updater\\SystemMaintenance",
+    '<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Actions><Exec><Command>C:\\Users\\jsmith\\AppData\\Local\\svchost.exe</Command></Exec></Actions><Principals><Principal id="Author"><UserId>SYSTEM</UserId></Principal></Principals><Triggers><LogonTrigger><UserId>jsmith</UserId></LogonTrigger></Triggers></Task>',
+    "S-1-5-18",
+
+    // Suspicious: Binary in Temp folder
+    datetime(2025-07-24 08:05:00), 4698, "WS-002", "akim", "0x456DEF",
+    "\\WindowsUpdate",
+    '<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Actions><Exec><Command>C:\\Windows\\Temp\\installer.exe</Command></Exec></Actions><Principals><Principal id="Author"><UserId>akim</UserId></Principal></Principals></Task>',
+    "S-1-5-21-123456789-1234567890-123456789-1001",
+
+    // Clean: Windows system task (should NOT fire — matches none of the rules)
+    datetime(2025-07-24 09:00:00), 4698, "DC-01", "SYSTEM", "0x999",
+    "\\Microsoft\\Windows\\Defrag\\ScheduledDefrag",
+    '<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Actions><Exec><Command>C:\\Windows\\System32\\defrag.exe</Command></Exec></Actions><Triggers><Weekly><DaysOfWeek>Saturday</DaysOfWeek><WeeksInterval>1</WeeksInterval></Weekly></Triggers></Task>',
+    "S-1-5-18",
+];
+
+TestSecurityEvent

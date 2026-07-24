@@ -1,0 +1,40 @@
+# MITRE ATT&CK Mapping — KQL Detection Arsenal
+# Format: technique-id:
+#   name: Technique name
+#   tactic: Tactic name
+#   rules: [list of rule file paths relative to project root]
+
+T1110:
+  name: "Brute Force"
+  tactic: "Credential Access"
+  severity: "High"
+  rules:
+    - "azure-sentinel/credential-access/brute-force-rdp.kql"
+
+T1558.003:
+  name: "Steal or Forge Kerberos Tickets: Kerberoasting"
+  tactic: "Credential Access"
+  severity: "High"
+  rules:
+    - "azure-sentinel/credential-access/kerberoasting-detection.kql"
+
+T1003.006:
+  name: "OS Credential Dumping: DCSync"
+  tactic: "Credential Access"
+  severity: "Critical"
+  rules:
+    - "azure-sentinel/credential-access/dcsync-detection.kql"
+
+T1059.001:
+  name: "Command and Scripting Interpreter: PowerShell"
+  tactic: "Execution"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/execution/powershell-obfuscation.kql"
+
+T1053.005:
+  name: "Scheduled Task / Job"
+  tactic: "Persistence"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/persistence/scheduled-task-creation.kql"

@@ -1,0 +1,24 @@
+// === Test Case: DCSync Detection ===
+// Simulates: A non-DC account "CONTOSO\\svc-monitor" performs
+// GetNCChanges replication operation from a non-DC host IP
+//
+// Expected: Rule should fire because account does NOT end with "$"
+// (not a legit DC computer account)
+// Query expects: DirectoryServiceAccess table
+
+let TestDirectoryServiceAccess = datatable(
+    TimeGenerated: datetime,
+    OperationName: string,
+    Identity: string,
+    Target: string,
+    IPAddress: string,
+    ResultType: string
+)
+[
+    datetime(2025-07-24 04:00:00), "Replication: GetNCChanges", "CONTOSO\\svc-monitor", "DC=contoso,DC=com", "10.10.200.50", "Success",
+    datetime(2025-07-24 04:00:05), "Replication: GetNCChanges", "CONTOSO\\svc-monitor", "DC=contoso,DC=com", "10.10.200.50", "Success",
+    datetime(2025-07-24 04:01:00), "Replication: GetNCChanges", "CONTOSO\\svc-monitor", "CN=Users,DC=contoso,DC=com", "10.10.200.50", "Success",
+    datetime(2025-07-24 04:02:00), "Replication: ReplicateSingleObject", "CONTOSO\\svc-monitor", "CN=krbtgt,CN=Users,DC=contoso,DC=com", "10.10.200.50", "Success",
+];
+
+TestDirectoryServiceAccess

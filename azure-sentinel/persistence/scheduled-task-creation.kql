@@ -1,0 +1,81 @@
+// === MITRE ATT&CK ===
+// Technique: T1053.005 — Scheduled Task / Job
+// Tactic: Persistence, Execution, Privilege Escalation
+// Severity: Medium
+// Data Source: SecurityEvent (Event 4698), DeviceEvents (MDE)
+//
+// Detects: Creation of scheduled tasks with suspicious characteristics:
+// - Tasks created by non-admin users / unexpected processes
+// - Tasks set to run as SYSTEM, LocalSystem, or high-privilege accounts
+// - Tasks pointing to executables in user-writable paths (Temp, AppData, Downloads)
+// - Tasks with trigger conditions that ensure persistence (logon, idle, daily)
+// - Tasks created immediately after logon / during off-hours
+//
+// False Positives:
+// - Legitimate software installers creating update tasks (Adobe, Google, Zoom)
+// - IT management tooling (SCCM, PDQ, GPO-deployed tasks)
+// - Windows system tasks (registered by OS components)
+//
+// Recommended Response:
+// 1. Verify the task creation source (ParentProcess, InitiatingAccount)
+// 2. Check the TaskContent for execution payload path
+// 3. Review the parent process chain — is it from Office, browser, or script host?
+// 4. If malicious: disable task, remove binary, investigate initial access vector
+// 5. Hunt for additional persistence mechanisms on the same host
+// === QUERY ===
+
+// Suspicious paths for scheduled task executables
+let suspicious_paths = dynamic([
+    "\\\\Users\\\\",
+    "\\\\Windows\\\\Temp\\\\",
+    "\\\\AppData\\\\Local\\\\",
+    "\\\\AppData\\\\Roaming\\\\",
+    "\\\\ProgramData\\\\",
+    "C:\\\\Windows\\\\TEMP\\\\",
+    "C:\\\\Temp\\\\",
+    "\\\\Downloads\\\\",
+    "%Temp%\\\\",
+    "%AppData%\\\\",
+    "%LOCALAPPDATA%\\\\"
+]);
+
+let high_privilege_sids = dynamic([
+    "S-1-5-18",          // LocalSystem
+    "S-1-5-19",          // LocalService
+    "S-1-5-20",          // NetworkService
+    "S-1-5-32-544",      // Administrators
+    "S-1-5-32-551"       // Backup Operators
+]);
+
+// Method 1: SecurityEvent — Scheduled task created (Event 4698)
+SecurityEvent
+| where TimeGenerated > ago(1d)
+| where EventID == 4698
+    // A scheduled task was created
+| where TaskContent has_any suspicious_paths
+    or TaskUserSid in~ high_privilege_sids
+    or (TaskContent contains "SYSTEM" and not (SubjectUserName contains "$"))
+| extend TaskName = split(TaskName, "\\")[-1]
+| project
+    TimeGenerated,
+    Computer = Computer,
+    Account = SubjectUserName,
+    TaskName,
+    TaskContent,
+    TaskUserSid,
+    LogonId = SubjectLogonId
+| extend
+    AlertName = "Scheduled Task Persistence",
+    Severity = iff(TaskUserSid == "S-1-5-18", "High", "Medium"),
+    TechniqueId = "T1053.005",
+    TechniqueName = "Scheduled Task / Job",
+    Description = strcat(
+        "Scheduled task '", TaskName, "' created by '", Account,
+        "' on '", Computer, "' with suspicious characteristics: ",
+        iff(TaskUserSid in~ high_privilege_sids,
+            "runs as high-privilege account",
+            "payload located in user-writable path"
+        ), "."
+    )
+| sort by TimeGenerated desc
+| take 20

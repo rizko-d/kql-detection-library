@@ -1,0 +1,90 @@
+// === MITRE ATT&CK ===
+// Technique: T1003.006 — OS Credential Dumping: DCSync
+// Tactic: Credential Access
+// Severity: Critical
+// Data Source: DirectoryServiceAccess, BehaviorAnalytics, AuditLogs
+//
+// Detects: Active Directory replication requests (DCSync) from
+// non-Domain-Controller accounts. DCSync is a technique where an
+// adversary impersonates a Domain Controller and requests AD
+// replication — effectively dumping all domain credentials (hashed
+// passwords for every user and computer account in the domain).
+//
+// Key indicators:
+// - GetNCChanges / ReplicateSingleObject requests from non-DC accounts
+// - Account has Replication-Get-Changes-All extended right
+// - Request originates from a non-DC host IP
+//
+// False Positives:
+// - Legitimate AD migration / cross-forest sync tools (ADMT, IdM)
+// - Azure AD Connect server performing sync
+// - New Domain Controller provisioning / demotion
+//
+// Recommended Response:
+// 1. CRITICAL — IMMEDIATE INVESTIGATION
+// 2. Identify the source account and host
+// 3. Check if the account is in Domain Admins or similar privileged groups
+// 4. Revoke replication rights from non-DC accounts immediately
+// 5. Assume ALL domain credentials are compromised — force password reset
+//    for all users, especially privileged accounts (KRBTGT, DA, EA)
+// 6. Rotate KRBTGT password twice (standard DC recovery procedure)
+// === QUERY ===
+
+// Method 1: Azure AD / DirectoryServiceAccess logs (hybrid environments)
+let dc_sync_logs =
+    DirectoryServiceAccess
+    | where TimeGenerated > ago(1d)
+    | where OperationName has "Replication"
+        or OperationName has "GetNCChanges"
+        or OperationName has "ReplicateSingleObject"
+    | where not (Identity has "$" and Target has "Domain Controllers")
+    // Exclude legitimate DC-to-DC replication
+    | project
+        TimeGenerated,
+        Account = Identity,
+        Operation = OperationName,
+        TargetObject = Target,
+        ClientIP = IPAddress,
+        Result = ResultType;
+
+// Method 2: BehaviorAnalytics — resource access anomalies
+let behavior_anomaly =
+    BehaviorAnalytics
+    | where TimeGenerated > ago(1d)
+    | where ActivityType == "ResourceAccess"
+    | where ResourcesAccessed has_any ("replicate", "directory", "sync")
+    | where InvestigationPriority >= 40  // High confidence anomaly
+    | project
+        TimeGenerated,
+        Account = UserName,
+        Operation = ActionType,
+        TargetObject = ResourcesAccessed,
+        ClientIP = tostring(SourceIPAddress),
+        InvestigationPriority;
+
+// Method 3: AuditLogs — AAD replication events (Azure AD sync)
+let aad_replication =
+    AuditLogs
+    | where TimeGenerated > ago(1d)
+    | where OperationName has_any ("Sync", "Replicate", "DirectoryReplication")
+    | project
+        TimeGenerated,
+        Account = InitiatedBy_User_UserPrincipalName,
+        Operation = OperationName,
+        TargetObject = TargetResources_ResourceDisplayName,
+        ClientIP = tostring(InitiatedBy_User_IPAddress);
+
+union dc_sync_logs, behavior_anomaly, aad_replication
+| extend
+    AlertName = "DCSync Detection",
+    Severity = "Critical",
+    TechniqueId = "T1003.006",
+    TechniqueName = "OS Credential Dumping: DCSync",
+    Description = strcat(
+        "Non-Domain-Controller account '", Account,
+        "' performed directory replication operation '", Operation,
+        "' from IP ", ClientIP,
+        ". This is consistent with DCSync credential dumping."
+    )
+| sort by TimeGenerated desc
+| take 20
