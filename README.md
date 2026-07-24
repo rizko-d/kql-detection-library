@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 5 (MVP) |
-| **Tactics Covered** | 4 |
-| **Techniques Covered** | 5 |
+| **Total Rules** | 5 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Tactics Covered** | 3 of 14 |
+| **Techniques Covered** | 5 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -89,54 +89,85 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] Test harness per rule
 - [x] MITRE ATT&CK mapping
 
-### v0.2 — Execution & Defense Evasion
-- [ ] LSASS Access / Mimikatz Detection (T1003.001)
-- [ ] Process Hollowing Detection (T1055.012)
-- [ ] AMSI Bypass Detection (T1562.001)
-- [ ] Log Clearing Detection (T1070.001)
-- [ ] Registry Run Key Persistence (T1547.001)
+### v0.2 — Execution & Defense Evasion (+10 rules)
+- [ ] **LSASS Access / Mimikatz Detection** (T1003.001) — ProcessAccess via lsass.exe, Event 4663
+- [ ] **AMSI Bypass Detection** (T1562.001) — AmsiScanBuffer patching, registry disable
+- [ ] **Process Hollowing Detection** (T1055.012) — Unbacked memory + suspended thread in trusted binaries
+- [ ] **Log Clearing Detection** (T1070.001) — Event 1102 (Security log cleared), wevtutil /auditpol
+- [ ] **Registry Run Key Persistence** (T1547.001) — CurrentVersion\Run modifications (Event 4657)
+- [ ] **WMI Event Subscription Persistence** (T1546.003) — \_\_EventFilter / \_\_FilterToConsumerBinding (Event 5861)
+- [ ] **Startup Folder Persistence** (T1547.001) — LNK creation in StartUp folders
+- [ ] **DLL Search Order Hijacking** (T1574.001) — DLL loads from user-writable paths
+- [ ] **BITS Jobs Persistence** (T1197) — Background Intelligent Transfer Service job creation
+- [ ] **Service Installation Detection** (T1543.003) — New service creation (Event 4697) from non-admin
 
-### v0.3 — Lateral Movement & Discovery
-- [ ] Pass-the-Hash Detection (T1550.002)
-- [ ] Remote Service Creation (T1543.003)
-- [ ] WMI Execution Detection (T1047)
-- [ ] Network Share Discovery (T1135)
-- [ ] PsExec Execution Detection (T1570)
+### v0.3 — Lateral Movement & Discovery (+10 rules)
+- [ ] **Pass-the-Hash Detection** (T1550.002) — NTLM logon type 3 anomalies
+- [ ] **Remote Service Creation** (T1543.003) — sc.exe / PowerShell New-Service from remote
+- [ ] **WMI Execution Detection** (T1047) — wmic process call create, Invoke-CimMethod
+- [ ] **PsExec / SMB Execution** (T1570) — PSEXESVC service + named pipe \psexecsvc
+- [ ] **Network Share Discovery** (T1135) — net view / net share enumeration bursts
+- [ ] **DCOM Lateral Movement** (T1021.003) — MMC20.Application, ShellWindows, Excel DCOM
+- [ ] **WinRM / PowerShell Remoting** (T1021.006) — WinRM service access, PS session creation
+- [ ] **RDP Lateral Movement** (T1021.001) — Successful RDP logon from non-admin workstation
+- [ ] **SMB Named Pipe Impersonation** (T1550.003) — \\pipe\\\* access after SMB session
+- [ ] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
 
-### v0.4 — Exfiltration & C2
-- [ ] Unusual Outbound Traffic (T1048)
-- [ ] DNS Tunneling Anomaly (T1572)
-- [ ] Beaconing Pattern Detection (T1071.001)
-- [ ] Large File Upload Anomaly (T1030)
-- [ ] Data Staging Detection (T1074)
+### v0.4 — Exfiltration & C2 (+10 rules)
+- [ ] **Unusual Outbound Traffic** (T1048) — Egress volume anomaly from non-web servers
+- [ ] **DNS Tunneling Anomaly** (T1572) — High-entropy subdomains, TXT query bursts
+- [ ] **Beaconing Pattern Detection** (T1071.001) — Periodic HTTP/HTTPS connection interval analysis
+- [ ] **Large File Upload Anomaly** (T1030) — File uploads > 100MB via web / cloud storage
+- [ ] **Data Staging Detection** (T1074) — Archive creation (zip/rar/7z) on sensitive shares
+- [ ] **C2 Over WebSocket** (T1071.001) — Long-lived WebSocket connections to rare domains
+- [ ] **C2 Over HTTPS (JA3/S)** — JA3 hash clustering for known C2 frameworks
+- [ ] **Cloud Storage Exfiltration** (T1567.002) — Files uploaded to personal cloud (Dropbox, GDrive)
+- [ ] **Email Forwarding Exfiltration** (T1114.003) — Auto-forwarding rule creation to external domain
+- [ ] **ICMP / Custom Protocol Tunneling** (T1571) — Non-DNS/HTTP outbound protocol anomalies
 
-### v0.5 — Cloud-Specific & Kubernetes
-- [ ] Azure AD MFA Bypass / Legacy Auth (T1078.004)
-- [ ] Suspicious OAuth Consent Grant (T1525.001)
-- [ ] Anomalous Service Principal Usage (T1098)
-- [ ] Kubernetes Container Escape (T1611)
-- [ ] Azure Key Vault Access Anomaly (T1552.005)
+### v0.5 — Cloud-Specific & Kubernetes (+10 rules)
+- [ ] **Azure AD MFA Bypass / Legacy Auth** (T1078.004) — Legacy protocol auth, no MFA conditional access
+- [ ] **Suspicious OAuth Consent Grant** (T1525.001) — Third-party app consent with high permissions
+- [ ] **Anomalous Service Principal Usage** (T1098) — New SPN / client secret outside business hours
+- [ ] **Container Escape Detection** (T1611) — --privileged flag, host mount, --pid=host
+- [ ] **Azure Key Vault Access Anomaly** (T1552.005) — Secret access from unexpected IP / region
+- [ ] **Kubernetes RBAC Abuse** (T1087.004) — ClusterRole escalation, secret enumeration via API
+- [ ] **Azure VM Run Command Abuse** (T1059.009) — RunCommand / Invoke-AzVMRunCommand
+- [ ] **Blob Storage Public Access** (T1530) — Anonymous blob enumeration, storage account misconfig
+- [ ] **Azure Resource Deletion** (T1485) — Bulk resource group / NSG deletion within minutes
+- [ ] **Azure Logic App / Automation Account Abuse** (T1053.006) — Suspicious runbook/job creation
 
-### v0.6 — Hunting & Baseline
-- [ ] Threat hunting queries module
-- [ ] User behavior baseline KQL
-- [ ] Unmanaged device access detection
-- [ ] Anomalous logon hour analysis
-- [ ] Cross-tenant access anomalies
+### v0.6 — Hunting & Baseline (+10 queries)
+- [ ] **Threat Hunting Queries Module** — `hunting-queries/` directory
+- [ ] **User Behavior Baseline KQL** — Historical logon hours, geolocation, device count
+- [ ] **Unmanaged Device Access Detection** — Device compliance check + Conditional Access bypass
+- [ ] **Anomalous Logon Hour Analysis** — First-time logon at 3 AM for a given user
+- [ ] **Cross-Tenant Access Anomalies** — B2B guest account enumeration
+- [ ] **Service Account Interactive Logon** — Service accounts should never have interactive sessions
+- [ ] **Pass-the-Hash Hunting** — RC4 NTLM logon across non-DC hosts
+- [ ] **Golden Ticket Hunting** — Kerberos ticket lifetime > 10 hours (Event 4768/4769 anomalies)
+- [ ] **Mailbox Access Anomalies** — Mailbox accessed via EWS/Graph API from unknown IP
+- [ ] **Identity Protection Insights** — Azure AD Identity Protection risk detections aggregated
 
 ### v0.7 — Tooling & CI
-- [ ] `rule-scaffold.py` — generate new rule from template
-- [ ] `coverage-report.py` — auto-generate ATT&CK matrix from rules dir
-- [ ] `test-simulator.py` — synthetic event generator per table
-- [ ] GitHub Actions CI — lint + validate on push
-- [ ] ARM template exporter — deploy rules as Sentinel Analytic Rules
+- [ ] **`rule-scaffold.py`** — Generate new rule from template with auto-frontmatter
+- [ ] **`coverage-report.py`** — Auto-generate ATT&CK matrix markdown from rules directory
+- [ ] **`test-simulator.py`** — Synthetic event generator per table schema
+- [ ] **GitHub Actions CI** — Run `rule-validator.py` on every push + PR
+- [ ] **ARM Template Exporter** — Deploy rules as Sentinel Analytic Rules via ARM/Bicep
+- [ ] **Sentinel-as-code (Terraform)** — Terraform module for `azurerm_sentinel_alert_rule`
+- [ ] **Rule Dependency Checker** — Cross-ref table references between rules and available data connectors
+- [ ] **False-Positive Test Dashboard** — KQL that quantifies FP rate per rule on historical data
 
 ### v0.8 — Advanced Features
-- [ ] Sentinel Workbook auto-generator (dashboard JSON)
-- [ ] `tier-2` directory — correlation rules (multi-event chain detection)
-- [ ] `tier-3` directory — fusion / ML anomaly rules
-- [ ] Cross-workspace hunting queries
-- [ ] Sentinel-as-code (Terraform / Bicep) module
+- [ ] **Sentinel Workbook Generator** — Auto-create Azure Workbook JSON from ruleset
+- [ ] **Tier-2: Correlation Rules** — Multi-event chain detection (e.g., user gets RDP → creates task → dumps LSASS)
+- [ ] **Tier-3: ML / Fusion Anomalies** — Time-series anomaly detection rules
+- [ ] **Cross-Workspace Hunting** — KQL queries spanning multiple Sentinel workspaces
+- [ ] **Watchlist Integration** — Dynamic allowlisting via Sentinel watchlists (corporate IP ranges, known-good hashes)
+- [ ] **KQL Unit Test Framework** — Automated `datatable`-based tests that assert expected results
+- [ ] **MITRE ATT&CK Navigator Layer** — Export rules as ATT&CK Navigator heatmap JSON
+- [ ] **Multi-Language Rule Converter** — Sigma → KQL translation mapper
 
 ## Deployment
 

@@ -24,45 +24,49 @@
 let time_window = 5m;
 let failure_threshold = 10;
 let success_after_failure = 5;
+let lookback = 2h;
 
-let failed_logons =
+// Phase 1: Filter SigninLogs to RDP-related events (materialized to fix
+// Kusto scoping issue with let + join)
+let rdp_signins = materialize(
     SigninLogs
-    | where TimeGenerated > ago(1h)
-    | where ResultType == "50053"  // Account locked
-        or ResultType == "50057"   // User disabled
-        or ResultType == "50126"   // Invalid username/password
-    | where AppDisplayName has_any ("RD", "Remote", "RDP", "Terminal")
-        or UserAgent has_any ("Microsoft Terminal Services", "RDP")
+    | where TimeGenerated > ago(lookback)
+    | where ResultType in ("0", "50053", "50057", "50126")
+    | where AppDisplayName has_any ("RD", "Remote", "RDP", "Terminal", "Gateway")
+        or UserAgent has_any ("Microsoft Terminal Services", "RDP", "MSRDP")
+);
+
+// Phase 2: Aggregate failed logons per IP
+let failed_logons =
+    rdp_signins
+    | where ResultType != "0"
     | summarize
         FailureCount = count(),
         UsersTargeted = make_set(UserPrincipalName),
         FirstAttempt = min(TimeGenerated),
         LastAttempt = max(TimeGenerated)
-        by IPAddress = IPAddress, WindowsTenantId
+        by IPAddress
     | where FailureCount >= failure_threshold;
 
+// Phase 3: Aggregate successful logons per IP
 let successful_logons =
-    SigninLogs
-    | where TimeGenerated > ago(1h)
+    rdp_signins
     | where ResultType == "0"
-    | where AppDisplayName has_any ("RD", "Remote", "RDP", "Terminal")
-        or UserAgent has_any ("Microsoft Terminal Services", "RDP")
     | summarize
         SuccessCount = count(),
         UsersSuccessful = make_set(UserPrincipalName),
         FirstSuccess = min(TimeGenerated)
-        by IPAddress = IPAddress;
+        by IPAddress;
 
+// Phase 4: Join — find IPs that had failures THEN success
 failed_logons
 | join kind=inner successful_logons on IPAddress
 | where
-    // Successful logon from same IP after failures
     FirstSuccess between (FirstAttempt .. (LastAttempt + time_window))
-    and SuccessCount <= success_after_failure  // Not a legitimate gateway
+    and SuccessCount <= success_after_failure
 | project
     TimeGenerated = LastAttempt,
     SourceIP = IPAddress,
-    TenantId = WindowsTenantId,
     FailureCount,
     SuccessCount,
     UsersTargeted,
