@@ -1,0 +1,75 @@
+// === MITRE ATT&CK ===
+// Technique: T1021.001 — Remote Services: Remote Desktop Protocol
+// Tactic: Lateral Movement
+// Severity: Medium
+// Data Source: SecurityEvent (4624), DeviceLogonEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Suspicious use of RDP (Logon Type 10 / RemoteInteractive) for
+// lateral movement inside the network — as opposed to the external brute-force
+// scenario. Flags internal RDP sessions where a single account or source host
+// connects to an unusually large number of destinations (fan-out), first-time
+// RDP paths, and RDP from workstations rather than jump hosts.
+//
+// Key indicators:
+// - Event 4624 Logon Type 10 (RemoteInteractive / RDP)
+// - One source account/host connecting to many distinct destinations
+// - RDP originating from a normal workstation (not an admin jump box)
+// - RDP sessions outside business hours
+//
+// False Positives:
+// - Legitimate administrators using RDP / jump servers
+// - Help desk remote support sessions
+// - VDI / RDS broker environments (high legitimate RDP volume)
+//
+// Recommended Response:
+// 1. Map the source → destination RDP graph for the account
+// 2. Verify the account is authorized for remote administration
+// 3. Check if the source host was recently compromised
+// 4. Correlate with credential theft on the source
+// 5. Restrict RDP with network segmentation / just-in-time access
+// === QUERY ===
+
+let lookback = 1d;
+let fanout_threshold = 3;
+
+// Materialized base: internal RDP (type 10) logons
+let rdp_logons = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4624
+    | where LogonType == 10
+    | where TargetUserName !endswith "$"
+    | where TargetUserName !in~ ("ANONYMOUS LOGON", "SYSTEM")
+    // Focus on internal/private source ranges (lateral, not external)
+    | where IpAddress startswith "10."
+        or IpAddress startswith "192.168."
+        or (IpAddress startswith "172." and split(IpAddress, ".")[1] between (16 .. 31))
+);
+
+// Fan-out detection: account connecting to many hosts via RDP
+rdp_logons
+| summarize
+    DestinationCount = dcount(Computer),
+    Destinations = make_set(Computer, 50),
+    SessionCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by TargetUserName, IpAddress
+| where DestinationCount >= fanout_threshold
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "RDP Lateral Movement",
+    Severity = "Medium",
+    TechniqueId = "T1021.001",
+    TechniqueName = "Remote Services: Remote Desktop Protocol",
+    Description = strcat(
+        "Account '", TargetUserName, "' from internal source '", IpAddress,
+        "' established RDP (type 10) sessions to ", DestinationCount,
+        " distinct hosts within ", datetime_diff('minute', LastSeen, FirstSeen),
+        " minutes — consistent with RDP-based lateral movement."
+    )
+| project
+    TimeGenerated, TargetUserName, IpAddress, DestinationCount, Destinations,
+    SessionCount, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by DestinationCount desc

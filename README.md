@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 15 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
-| **Tactics Covered** | 4 of 14 |
-| **Techniques Covered** | 15 of ~200 |
+| **Total Rules** | 20 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Tactics Covered** | 6 of 14 |
+| **Techniques Covered** | 20 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -61,6 +61,21 @@
 | [Startup Folder](azure-sentinel/persistence/startup-folder.kql) | T1547.001 | Medium/High | DeviceFileEvents (MDE) |
 | [BITS Jobs](azure-sentinel/persistence/bits-jobs.kql) | T1197 | Medium/High | DeviceProcessEvents (MDE) |
 | [Service Installation](azure-sentinel/persistence/service-installation.kql) | T1543.003 | Medium/High | SecurityEvent (7045/4697), DeviceProcessEvents |
+
+### Lateral Movement
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [Pass-the-Hash](azure-sentinel/lateral-movement/pass-the-hash.kql) | T1550.002 | High | SecurityEvent (4624), DeviceLogonEvents |
+| [WMI Execution](azure-sentinel/lateral-movement/wmi-execution.kql) | T1047 | Medium/High | DeviceProcessEvents (MDE) |
+| [PsExec / SMB Execution](azure-sentinel/lateral-movement/psexec-smb-execution.kql) | T1570 | High | SecurityEvent (7045/5145), DeviceProcessEvents |
+| [RDP Lateral Movement](azure-sentinel/lateral-movement/rdp-lateral-movement.kql) | T1021.001 | Medium | SecurityEvent (4624), DeviceLogonEvents |
+
+### Discovery
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [Network Share Discovery](azure-sentinel/discovery/network-share-discovery.kql) | T1135 | Low/Medium | DeviceProcessEvents (MDE) |
 
 ## Rule Format
 
@@ -117,14 +132,14 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **Service Installation Detection** (T1543.003) — New service creation (Event 4697) from non-admin
 
 ### v0.3 — Lateral Movement & Discovery (+10 rules)
-- [ ] **Pass-the-Hash Detection** (T1550.002) — NTLM logon type 3 anomalies
+- [x] **Pass-the-Hash Detection** (T1550.002) — NTLM logon type 3 anomalies
 - [ ] **Remote Service Creation** (T1543.003) — sc.exe / PowerShell New-Service from remote
-- [ ] **WMI Execution Detection** (T1047) — wmic process call create, Invoke-CimMethod
-- [ ] **PsExec / SMB Execution** (T1570) — PSEXESVC service + named pipe \psexecsvc
-- [ ] **Network Share Discovery** (T1135) — net view / net share enumeration bursts
+- [x] **WMI Execution Detection** (T1047) — wmic process call create, Invoke-CimMethod
+- [x] **PsExec / SMB Execution** (T1570) — PSEXESVC service + named pipe \psexecsvc
+- [x] **Network Share Discovery** (T1135) — net view / net share enumeration bursts
 - [ ] **DCOM Lateral Movement** (T1021.003) — MMC20.Application, ShellWindows, Excel DCOM
 - [ ] **WinRM / PowerShell Remoting** (T1021.006) — WinRM service access, PS session creation
-- [ ] **RDP Lateral Movement** (T1021.001) — Successful RDP logon from non-admin workstation
+- [x] **RDP Lateral Movement** (T1021.001) — Successful RDP logon from non-admin workstation
 - [ ] **SMB Named Pipe Impersonation** (T1550.003) — \\pipe\\\* access after SMB session
 - [ ] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
 

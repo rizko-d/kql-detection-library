@@ -1,0 +1,102 @@
+// === MITRE ATT&CK ===
+// Technique: T1047 — Windows Management Instrumentation
+// Tactic: Execution, Lateral Movement
+// Severity: High
+// Data Source: DeviceProcessEvents (Microsoft Defender for Endpoint), SecurityEvent (4688)
+//
+// Detects: Abuse of Windows Management Instrumentation (WMI) for remote code
+// execution and lateral movement. Attackers use wmic.exe (process call create),
+// Invoke-WmiMethod / Invoke-CimMethod, or WMI providers to launch processes on
+// local and remote hosts — a fileless technique that blends with admin activity.
+//
+// Key indicators:
+// - wmic.exe with "process call create"
+// - wmic with /node: pointing to a remote host (remote execution)
+// - PowerShell Invoke-WmiMethod / Invoke-CimMethod spawning processes
+// - WmiPrvSE.exe spawning suspicious children (cmd, powershell, script hosts)
+//
+// False Positives:
+// - Legitimate remote administration (SCCM, monitoring, inventory)
+// - IT automation scripts using WMI
+//
+// Recommended Response:
+// 1. Inspect the full command line — is a remote /node: specified?
+// 2. Check the process spawned by WMI (child of WmiPrvSE.exe)
+// 3. Identify source and destination hosts for lateral movement
+// 4. Correlate with credential access / other lateral movement signals
+// 5. Isolate hosts if remote WMI execution is confirmed malicious
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_children = dynamic([
+    "cmd.exe", "powershell.exe", "pwsh.exe", "mshta.exe", "rundll32.exe",
+    "regsvr32.exe", "wscript.exe", "cscript.exe", "certutil.exe", "bitsadmin.exe"
+]);
+
+// Method 1: wmic.exe process call create (local or remote via /node:)
+let wmic_exec =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName =~ "wmic.exe"
+    | where ProcessCommandLine has "process" and ProcessCommandLine has "call" and ProcessCommandLine has "create"
+    | extend IsRemote = ProcessCommandLine has "/node:"
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = iff(IsRemote, "wmic remote process create", "wmic local process create"),
+        FileName,
+        ProcessCommandLine,
+        Account = AccountName,
+        ParentProcess = InitiatingProcessFileName,
+        IsRemote;
+
+// Method 2: PowerShell WMI/CIM method invocation
+let powershell_wmi =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has_any ("Invoke-WmiMethod", "Invoke-CimMethod", "Win32_Process")
+    | where ProcessCommandLine has_any ("Create", "process", "-ComputerName")
+    | extend IsRemote = ProcessCommandLine has "-ComputerName"
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "PowerShell WMI method invocation",
+        FileName,
+        ProcessCommandLine,
+        Account = AccountName,
+        ParentProcess = InitiatingProcessFileName,
+        IsRemote;
+
+// Method 3: WmiPrvSE.exe spawning suspicious children (result of remote WMI exec)
+let wmiprvse_children =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where InitiatingProcessFileName =~ "WmiPrvSE.exe"
+    | where FileName in~ (suspicious_children)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "WmiPrvSE spawned suspicious child",
+        FileName,
+        ProcessCommandLine,
+        Account = AccountName,
+        ParentProcess = InitiatingProcessFileName,
+        IsRemote = true;
+
+union wmic_exec, powershell_wmi, wmiprvse_children
+| extend
+    AlertName = "WMI Execution / Lateral Movement",
+    Severity = iff(IsRemote, "High", "Medium"),
+    TechniqueId = "T1047",
+    TechniqueName = "Windows Management Instrumentation",
+    Description = strcat(
+        "WMI execution detected (", DetectionType, ") on '", DeviceName,
+        "' by '", Account, "'. ",
+        iff(IsRemote, "Remote execution indicator present.", "Local WMI execution.")
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, FileName, ProcessCommandLine,
+    Account, ParentProcess, IsRemote,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

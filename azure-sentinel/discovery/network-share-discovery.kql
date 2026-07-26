@@ -1,0 +1,78 @@
+// === MITRE ATT&CK ===
+// Technique: T1135 — Network Share Discovery
+// Tactic: Discovery
+// Severity: Medium
+// Data Source: DeviceProcessEvents (Microsoft Defender for Endpoint), SecurityEvent (5140)
+//
+// Detects: Enumeration of network shares, which attackers perform during the
+// discovery phase to find data to steal and hosts to move to. Flags the use of
+// net view / net share, PowerShell share enumeration, and reconnaissance tools,
+// especially when a single host queries many shares/hosts in a short window.
+//
+// Key indicators:
+// - net.exe / net1.exe with "view" or "share"
+// - PowerShell Get-SmbShare, Get-WmiObject Win32_Share, [ADSI] share queries
+// - Recon tools (adfind, SharpShares, PowerView Invoke-ShareFinder)
+// - A single account enumerating shares across many hosts (net view \\host)
+//
+// False Positives:
+// - Legitimate administrators mapping / auditing shares
+// - Backup and inventory software enumerating shares
+// - Login scripts that map network drives
+//
+// Recommended Response:
+// 1. Review the command lines and the breadth of enumeration
+// 2. Identify the account and host performing discovery
+// 3. Correlate with subsequent access to discovered shares
+// 4. Check for follow-on lateral movement or data staging
+// 5. If part of an intrusion, expand scope to the source host
+// === QUERY ===
+
+let lookback = 1d;
+let share_recon_markers = dynamic([
+    "net view", "net share", "net1 view", "net1 share",
+    "Get-SmbShare", "Win32_Share", "Invoke-ShareFinder", "SharpShares",
+    "Find-DomainShare", "Get-NetShare", "[ADSI]", "net use *"
+]);
+let recon_tools = dynamic(["adfind.exe", "sharpshares.exe", "snaffler.exe"]);
+
+DeviceProcessEvents
+| where TimeGenerated > ago(lookback)
+| where (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has_any ("view", "share"))
+    or (FileName in~ ("powershell.exe", "pwsh.exe") and ProcessCommandLine has_any (share_recon_markers))
+    or FileName in~ (recon_tools)
+    or ProcessCommandLine has_any (share_recon_markers)
+| extend
+    EnumeratesRemote = ProcessCommandLine has "\\\\",
+    ReconType = case(
+        ProcessCommandLine has_any (dynamic(["Invoke-ShareFinder", "SharpShares", "Find-DomainShare", "Snaffler"])),
+            "Automated share-hunting tool",
+        FileName in~ ("net.exe", "net1.exe"),
+            "net view / net share enumeration",
+        "PowerShell / WMI share enumeration"
+    )
+| summarize
+    CommandCount = count(),
+    Commands = make_set(ProcessCommandLine, 20),
+    ReconTypes = make_set(ReconType),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    AnyRemote = maxif(1, EnumeratesRemote == true)
+    by DeviceName, Account = AccountName
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Network Share Discovery",
+    Severity = iff(CommandCount >= 5 or AnyRemote == 1, "Medium", "Low"),
+    TechniqueId = "T1135",
+    TechniqueName = "Network Share Discovery",
+    Description = strcat(
+        "Account '", Account, "' on '", DeviceName, "' performed ",
+        CommandCount, " share-enumeration command(s) within ",
+        datetime_diff('minute', LastSeen, FirstSeen),
+        " minutes. Types: ", strcat_array(ReconTypes, ", "), "."
+    )
+| project
+    TimeGenerated, DeviceName, Account, CommandCount, Commands, ReconTypes,
+    FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by CommandCount desc

@@ -1,0 +1,27 @@
+// === Test Case: Pass-the-Hash Lateral Movement ===
+// Simulates: account "svc_admin" from 10.10.50.20 doing NTLM (type 3) logons
+// to 4 distinct hosts (fan-out) + a legit single NTLM logon that should NOT fire.
+// Expected: 1 alert (DestinationCount=4 >= threshold 3).
+// Query expects: SecurityEvent (4624)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    LogonType: int,
+    AuthenticationPackageName: string,
+    LogonProcessName: string,
+    TargetUserName: string,
+    IpAddress: string,
+    Computer: string
+)
+[
+    // Malicious fan-out: svc_admin hitting 4 hosts via NTLM
+    datetime(2025-07-26 20:00:00), 4624, 3, "NTLM", "NtLmSsp", "svc_admin", "10.10.50.20", "SRV-FILE01",
+    datetime(2025-07-26 20:01:00), 4624, 3, "NTLM", "NtLmSsp", "svc_admin", "10.10.50.20", "SRV-FILE02",
+    datetime(2025-07-26 20:02:00), 4624, 3, "NTLM", "NtLmSsp", "svc_admin", "10.10.50.20", "SRV-DB01",
+    datetime(2025-07-26 20:03:00), 4624, 3, "NTLM", "NtLmSsp", "svc_admin", "10.10.50.20", "SRV-APP01",
+    // Benign: single NTLM logon from a normal user (should NOT fire — only 1 dest)
+    datetime(2025-07-26 21:00:00), 4624, 3, "NTLM", "NtLmSsp", "jsmith", "10.10.60.5", "SRV-FILE01",
+];
+
+TestSecurityEvent

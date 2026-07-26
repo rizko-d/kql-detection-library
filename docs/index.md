@@ -19,9 +19,9 @@ A standardized, production-ready library of KQL detection rules for **Microsoft 
 
 | Metric | Value |
 |---|---|
-| Current Rules | 15 |
-| Tactics Covered | 4 of 14 |
-| Techniques | 13 (v0.1 + v0.2 complete) |
+| Current Rules | 20 |
+| Tactics Covered | 6 of 14 |
+| Techniques | 18 (v0.1, v0.2 complete + v0.3 partial) |
 | Target Platform | Microsoft Sentinel / Log Analytics |
 | Rule Format | Standardized KQL with MITRE ATT&CK frontmatter |
 

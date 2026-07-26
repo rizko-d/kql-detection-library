@@ -1,0 +1,25 @@
+// === Test Case: RDP Lateral Movement ===
+// Simulates: account "helpdesk" from internal 10.20.5.10 doing RDP (type 10)
+// to 4 hosts (fan-out) + a single legit RDP session that should NOT fire.
+// Expected: 1 alert (DestinationCount=4 >= threshold 3).
+// Query expects: SecurityEvent (4624)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    LogonType: int,
+    TargetUserName: string,
+    IpAddress: string,
+    Computer: string
+)
+[
+    // Malicious fan-out: helpdesk RDP to 4 internal hosts
+    datetime(2025-07-26 11:00:00), 4624, 10, "helpdesk", "10.20.5.10", "SRV-APP01",
+    datetime(2025-07-26 11:05:00), 4624, 10, "helpdesk", "10.20.5.10", "SRV-APP02",
+    datetime(2025-07-26 11:10:00), 4624, 10, "helpdesk", "10.20.5.10", "SRV-DB01",
+    datetime(2025-07-26 11:15:00), 4624, 10, "helpdesk", "10.20.5.10", "SRV-FILE01",
+    // Benign: single RDP session from admin (should NOT fire — only 1 dest)
+    datetime(2025-07-26 12:00:00), 4624, 10, "admin", "192.168.1.50", "SRV-APP01",
+];
+
+TestSecurityEvent

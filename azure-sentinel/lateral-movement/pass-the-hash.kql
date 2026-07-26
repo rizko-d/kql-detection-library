@@ -1,0 +1,74 @@
+// === MITRE ATT&CK ===
+// Technique: T1550.002 — Use Alternate Authentication Material: Pass the Hash
+// Tactic: Lateral Movement, Defense Evasion
+// Severity: High
+// Data Source: SecurityEvent (4624, 4625, 4776), DeviceLogonEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Pass-the-Hash (PtH) lateral movement, where an attacker authenticates
+// using a captured NTLM hash rather than a plaintext password. The signature is
+// a network logon (type 3) using NTLM with specific characteristics: seclogo /
+// explicit-credential logons, workstation-to-workstation NTLM, and logons where
+// the authentication package is NTLM but the account normally uses Kerberos.
+//
+// Key indicators:
+// - Event 4624 Logon Type 3 with AuthenticationPackageName = "NTLM"
+// - LogonProcessName = "NtLmSsp" or "seclogo"
+// - Non-domain-controller accounts authenticating via NTLM across hosts
+// - A single source rapidly authenticating to many destinations (fan-out)
+//
+// False Positives:
+// - Legacy applications that still use NTLM
+// - Workgroups / non-domain-joined systems
+// - Some backup and scanning tools
+//
+// Recommended Response:
+// 1. Identify the source host and account
+// 2. Determine if the account was recently harvested (correlate with LSASS access)
+// 3. Check the fan-out: how many hosts did this account touch via NTLM?
+// 4. Reset the compromised account's password (invalidates the hash)
+// 5. Hunt for the initial credential theft on the source host
+// === QUERY ===
+
+let lookback = 1d;
+let fanout_threshold = 3;
+
+// Materialized base: NTLM network logons (type 3) via NtLmSsp
+let ntlm_logons = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4624
+    | where LogonType == 3
+    | where AuthenticationPackageName =~ "NTLM"
+    | where LogonProcessName in~ ("NtLmSsp", "seclogo", "Advapi")
+    // Exclude machine accounts (end with $) and ANONYMOUS
+    | where TargetUserName !endswith "$"
+    | where TargetUserName !in~ ("ANONYMOUS LOGON", "SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE")
+);
+
+// Detect fan-out: one account/source hitting many destinations via NTLM
+ntlm_logons
+| summarize
+    DestinationCount = dcount(Computer),
+    Destinations = make_set(Computer, 50),
+    LogonCount = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by TargetUserName, IpAddress
+| where DestinationCount >= fanout_threshold
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Pass-the-Hash Lateral Movement",
+    Severity = "High",
+    TechniqueId = "T1550.002",
+    TechniqueName = "Use Alternate Authentication Material: Pass the Hash",
+    Description = strcat(
+        "Account '", TargetUserName, "' from source IP '", IpAddress,
+        "' performed NTLM (type 3) network logons to ", DestinationCount,
+        " distinct hosts within ", datetime_diff('minute', LastSeen, FirstSeen),
+        " minutes — consistent with Pass-the-Hash lateral movement."
+    )
+| project
+    TimeGenerated, TargetUserName, IpAddress, DestinationCount, Destinations,
+    LogonCount, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by DestinationCount desc

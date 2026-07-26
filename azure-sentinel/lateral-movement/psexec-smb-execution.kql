@@ -1,0 +1,90 @@
+// === MITRE ATT&CK ===
+// Technique: T1570 — Lateral Tool Transfer (PsExec / SMB Execution)
+// Tactic: Lateral Movement, Execution
+// Severity: High
+// Data Source: SecurityEvent (7045, 5145), DeviceProcessEvents, DeviceFileEvents (Microsoft Defender for Endpoint)
+//
+// Detects: PsExec-style lateral movement, where a tool is copied to a remote
+// host over SMB (ADMIN$ share) and executed via a temporary service. This is
+// the classic PsExec / paexec / csexec pattern and is heavily used by both
+// administrators and attackers (and ransomware operators) for remote execution.
+//
+// Key indicators:
+// - Service creation (Event 7045) with name PSEXESVC or a random 8-char name
+// - Named pipe access to \\.\pipe\psexesvc / \\.\pipe\paexec
+// - File written to ADMIN$ / C$ share (Event 5145 with RelativeTargetName)
+// - PSEXESVC.exe or renamed variant executing on the destination
+//
+// False Positives:
+// - Legitimate use of Sysinternals PsExec by administrators
+// - Remote management / deployment tools that use similar mechanisms
+//
+// Recommended Response:
+// 1. Identify the source host that initiated the PsExec session
+// 2. Check the account used and whether it is authorized for remote admin
+// 3. Determine what was executed on the destination
+// 4. Correlate with the broader intrusion (ransomware often uses PsExec to deploy)
+// 5. Isolate affected hosts and reset the account credentials
+// === QUERY ===
+
+let lookback = 1d;
+let psexec_service_names = dynamic(["psexesvc", "paexec", "csexec", "remcom", "psexec"]);
+let psexec_pipes = dynamic(["psexesvc", "paexec", "remcom", "csexec"]);
+
+// Method 1: Service creation matching PsExec-family names (Event 7045)
+let psexec_service =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 7045
+    | extend SvcName = tolower(coalesce(column_ifexists("ServiceName", ""), ""))
+    | extend SvcFile = tolower(coalesce(column_ifexists("ServiceFileName", ""), ""))
+    | where SvcName has_any (psexec_service_names) or SvcFile has_any (psexec_pipes)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionType = "PsExec service creation",
+        Detail = strcat("Service: ", SvcName, " | Path: ", SvcFile),
+        Account = SubjectUserName;
+
+// Method 2: PSEXESVC binary execution
+let psexec_process =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName has_any (dynamic(["psexesvc.exe", "paexec.exe", "csexec.exe"]))
+        or ProcessCommandLine has_any (dynamic(["\\\\.\\pipe\\psexesvc", "\\\\.\\pipe\\paexec"]))
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "PsExec service binary execution",
+        Detail = ProcessCommandLine,
+        Account = AccountName;
+
+// Method 3: File written to ADMIN$ / C$ admin share (Event 5145)
+let admin_share_write =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 5145
+    | where ShareName in~ ("\\\\*\\ADMIN$", "\\\\*\\C$")
+    | extend RelName = tolower(coalesce(column_ifexists("RelativeTargetName", ""), ""))
+    | where RelName endswith ".exe" or RelName has_any (psexec_pipes)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionType = "Executable written to admin share",
+        Detail = strcat("Share: ", ShareName, " | File: ", RelName),
+        Account = SubjectUserName;
+
+union psexec_service, psexec_process, admin_share_write
+| extend
+    AlertName = "PsExec / SMB Lateral Movement",
+    Severity = "High",
+    TechniqueId = "T1570",
+    TechniqueName = "Lateral Tool Transfer",
+    Description = strcat(
+        "PsExec-style lateral movement (", DetectionType, ") on '",
+        DeviceName, "' by '", Account, "'. ", Detail
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, Detail, Account,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

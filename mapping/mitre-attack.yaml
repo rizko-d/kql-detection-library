@@ -102,3 +102,38 @@ T1543.003:
   severity: "Medium"
   rules:
     - "azure-sentinel/persistence/service-installation.kql"
+
+T1550.002:
+  name: "Use Alternate Authentication Material: Pass the Hash"
+  tactic: "Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/pass-the-hash.kql"
+
+T1047:
+  name: "Windows Management Instrumentation"
+  tactic: "Execution / Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/wmi-execution.kql"
+
+T1570:
+  name: "Lateral Tool Transfer (PsExec / SMB)"
+  tactic: "Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/psexec-smb-execution.kql"
+
+T1021.001:
+  name: "Remote Services: Remote Desktop Protocol"
+  tactic: "Lateral Movement"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/lateral-movement/rdp-lateral-movement.kql"
+
+T1135:
+  name: "Network Share Discovery"
+  tactic: "Discovery"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/discovery/network-share-discovery.kql"

@@ -1,0 +1,26 @@
+// === Test Case: Network Share Discovery ===
+// Simulates: a host running multiple net view \\host commands + PowerView
+// Invoke-ShareFinder (malicious recon) + a single benign net share that is low.
+// Expected: 1 medium alert (fan-out / tool) for the recon host.
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious recon: multiple net view against remote hosts
+    datetime(2025-07-26 13:00:00), "net.exe", "net view \\\\SRV-FILE01", "attacker", "WS-001",
+    datetime(2025-07-26 13:00:30), "net.exe", "net view \\\\SRV-FILE02", "attacker", "WS-001",
+    datetime(2025-07-26 13:01:00), "net.exe", "net view \\\\SRV-DB01", "attacker", "WS-001",
+    datetime(2025-07-26 13:01:30), "net.exe", "net view \\\\SRV-APP01", "attacker", "WS-001",
+    // Malicious: PowerView share hunting
+    datetime(2025-07-26 13:02:00), "powershell.exe", "powershell.exe Invoke-ShareFinder -CheckShareAccess", "attacker", "WS-001",
+    // Benign: single net share on own host (should stay low / separate host)
+    datetime(2025-07-26 14:00:00), "net.exe", "net share", "admin", "WS-005",
+];
+
+TestDeviceProcessEvents

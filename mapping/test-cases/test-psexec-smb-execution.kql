@@ -1,0 +1,26 @@
+// === Test Case: PsExec / SMB Lateral Movement ===
+// Simulates: PSEXESVC service creation (7045) + executable written to ADMIN$
+// (5145) + benign service creation that should NOT fire.
+// Expected: 2 alerts (PsExec service + admin share write).
+// Query expects: SecurityEvent (7045, 5145)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    ServiceName: string,
+    ServiceFileName: string,
+    ShareName: string,
+    RelativeTargetName: string,
+    SubjectUserName: string
+)
+[
+    // Malicious: PSEXESVC service created
+    datetime(2025-07-26 09:00:00), 7045, "SRV-DB01", "PSEXESVC", "C:\\Windows\\PSEXESVC.exe", "", "", "attacker_admin",
+    // Malicious: executable written to ADMIN$ share
+    datetime(2025-07-26 09:00:30), 5145, "SRV-DB01", "", "", "\\\\SRV-DB01\\ADMIN$", "psexesvc.exe", "attacker_admin",
+    // Benign: normal service creation (should NOT fire)
+    datetime(2025-07-26 10:00:00), 7045, "WS-005", "MyAppUpdater", "C:\\Program Files\\MyApp\\updater.exe", "", "", "SYSTEM",
+];
+
+TestSecurityEvent
