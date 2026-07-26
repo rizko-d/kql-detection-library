@@ -1,0 +1,44 @@
+name: KQL Rule Validation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'azure-sentinel/**'
+      - 'hunting-queries/**'
+      - 'mapping/**'
+      - 'tools/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'azure-sentinel/**'
+      - 'hunting-queries/**'
+      - 'mapping/**'
+      - 'tools/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate KQL rules & hunting queries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate detection rules
+        run: python tools/rule-validator.py azure-sentinel/
+
+      - name: Validate hunting queries
+        run: python tools/rule-validator.py hunting-queries/
+
+      - name: Check rule/test-case pairing
+        run: python tools/rule-dependency-checker.py
+
+      - name: Verify ATT&CK coverage report is up to date
+        run: |
+          python tools/coverage-report.py --check

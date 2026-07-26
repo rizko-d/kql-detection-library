@@ -169,6 +169,38 @@ Each test case simulates the relevant table schema with realistic event data and
 ## MITRE ATT&CK Coverage
 
 See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
+**This file is auto-generated** — run `python tools/coverage-report.py --write` after adding rules.
+
+## Tooling
+
+All tools are zero-dependency (Python stdlib only) and live in [`tools/`](tools/).
+
+| Tool | Purpose |
+|---|---|
+| `rule-validator.py` | Validate rules & hunting queries (headers, syntax, naming). CI gate. |
+| `rule-scaffold.py` | Generate a new rule or hunt from template + matching test case. |
+| `coverage-report.py` | Auto-generate `ATTACK_MATRIX.md` from rule headers (`--write` / `--check`). |
+| `rule-dependency-checker.py` | Verify every rule has a test case, yaml entry, and matrix reference. |
+| `fp-report.py` | False-positive hardening score per rule (FP section + response + benign test row). |
+| `arm-exporter.py` | Export all rules as a Sentinel ARM template (`Microsoft.SecurityInsights/alertRules`). |
+| `terraform-exporter.py` | Export all rules as Terraform (`azurerm_sentinel_alert_rule_scheduled`). |
+
+```bash
+# Add a new rule end-to-end
+python tools/rule-scaffold.py rule --name my-rule --category execution \
+    --technique T1059 --tactic Execution --severity High --data-source "DeviceProcessEvents (MDE)"
+# ... fill in the TODOs ...
+python tools/rule-validator.py azure-sentinel/
+python tools/rule-dependency-checker.py
+python tools/coverage-report.py --write          # refresh the ATT&CK matrix
+
+# Deploy to Sentinel
+python tools/arm-exporter.py --out deploy/sentinel-rules.json
+python tools/terraform-exporter.py --out deploy/sentinel.tf
+```
+
+CI ([`.github/workflows/validate.yml`](.github/workflows/validate.yml)) runs the validator,
+dependency checker, and coverage `--check` on every push and PR.
 
 ## Roadmap
 
@@ -243,15 +275,15 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **Identity Protection Insights** — Azure AD Identity Protection risk detections aggregated
 - [x] **Data Staging → Exfil Correlation** — archive creation followed by large egress (bonus)
 
-### v0.7 — Tooling & CI
-- [ ] **`rule-scaffold.py`** — Generate new rule from template with auto-frontmatter
-- [ ] **`coverage-report.py`** — Auto-generate ATT&CK matrix markdown from rules directory
-- [ ] **`test-simulator.py`** — Synthetic event generator per table schema
-- [ ] **GitHub Actions CI** — Run `rule-validator.py` on every push + PR
-- [ ] **ARM Template Exporter** — Deploy rules as Sentinel Analytic Rules via ARM/Bicep
-- [ ] **Sentinel-as-code (Terraform)** — Terraform module for `azurerm_sentinel_alert_rule`
-- [ ] **Rule Dependency Checker** — Cross-ref table references between rules and available data connectors
-- [ ] **False-Positive Test Dashboard** — KQL that quantifies FP rate per rule on historical data
+### v0.7 — Tooling & CI ✅ COMPLETE
+- [x] **`rule-scaffold.py`** — Generate new rule/hunt from template with auto-frontmatter
+- [x] **`coverage-report.py`** — Auto-generate ATT&CK matrix markdown from rules directory (`--write` / `--check`)
+- [x] **GitHub Actions CI** — Run `rule-validator.py` + dependency + coverage check on every push + PR
+- [x] **ARM Template Exporter** (`arm-exporter.py`) — Deploy rules as Sentinel Analytic Rules via ARM
+- [x] **Sentinel-as-code (Terraform)** (`terraform-exporter.py`) — `azurerm_sentinel_alert_rule_scheduled`
+- [x] **Rule Dependency Checker** (`rule-dependency-checker.py`) — Cross-ref rules ↔ test cases ↔ yaml ↔ matrix
+- [x] **False-Positive Coverage Report** (`fp-report.py`) — FP-hardening score per rule
+- [ ] **`test-simulator.py`** — Synthetic event generator per table schema (deferred to v0.8)
 
 ### v0.8 — Advanced Features
 - [ ] **Sentinel Workbook Generator** — Auto-create Azure Workbook JSON from ruleset

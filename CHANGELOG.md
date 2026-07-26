@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7 — 2025-07-26
+### Added — Tooling & CI (7 of 8 items; test-simulator deferred to v0.8)
+- **`rule-scaffold.py`** — generate a rule/hunt from template + matching test case
+- **`coverage-report.py`** — auto-generate ATTACK_MATRIX.md from rule headers (`--write`/`--check`)
+- **`rule-dependency-checker.py`** — verify rules ↔ test cases ↔ mitre-attack.yaml ↔ matrix integrity
+- **`fp-report.py`** — false-positive hardening score per rule (avg 2.91/3 at v0.7)
+- **`arm-exporter.py`** — export rules as a Sentinel ARM template (Microsoft.SecurityInsights/alertRules)
+- **`terraform-exporter.py`** — export rules as Terraform (azurerm_sentinel_alert_rule_scheduled)
+- **GitHub Actions CI** (`.github/workflows/validate.yml`) — validator + dependency + coverage-check on push/PR
+### Changed
+- `ATTACK_MATRIX.md` is now **auto-generated** by `coverage-report.py` (no more manual edits)
+- Renamed 4 v0.1 test cases to the `test-<rule-stem>.kql` convention so the dependency
+  checker can pair them 1:1 (test-brute-force→test-brute-force-rdp, etc.)
+- Added `docs/fp-coverage.md` — generated FP-tuning coverage report
+
 ## v0.6 — 2025-07-26
 ### Added — Hunting & Baseline (COMPLETE, 10 hunting queries)
 - New `hunting-queries/` module with a hunt-specific metadata format
