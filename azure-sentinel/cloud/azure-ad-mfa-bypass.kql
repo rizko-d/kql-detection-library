@@ -1,0 +1,66 @@
+// === MITRE ATT&CK ===
+// Technique: T1078.004 — Valid Accounts: Cloud Accounts (Azure AD MFA Bypass / Legacy Auth)
+// Tactic: Defense Evasion, Initial Access, Persistence, Privilege Escalation
+// Severity: High
+// Data Source: SigninLogs, AADNonInteractiveUserSignInLogs
+//
+// Detects: Sign-ins using legacy authentication protocols (which cannot enforce
+// MFA) and successful sign-ins that bypassed MFA — a common way attackers use
+// stolen credentials while evading Conditional Access. Legacy protocols
+// (POP3, IMAP, SMTP AUTH, Exchange ActiveSync, older Office clients) do not
+// support modern auth and are frequently abused in password-spray follow-ups.
+//
+// Key indicators:
+// - ClientAppUsed in the legacy set (Other clients, IMAP4, POP3, SMTP, MAPI,
+//   Exchange ActiveSync, Authenticated SMTP)
+// - Successful sign-in with ResultType 0 and no MFA satisfied
+// - Legacy auth from an unusual location / IP after a spray
+//
+// False Positives:
+// - Legitimate legacy apps / devices still in use (printers, scanners, old clients)
+// - Service accounts using basic auth (should be migrated)
+//
+// Recommended Response:
+// 1. Identify the account, client app, and source IP
+// 2. Verify whether legacy auth is expected for this account
+// 3. Block legacy authentication via Conditional Access
+// 4. Reset credentials if the sign-in is suspicious; enforce MFA
+// 5. Hunt for related password-spray / impossible-travel activity
+// === QUERY ===
+
+let lookback = 1d;
+let legacy_clients = dynamic([
+    "Other clients", "IMAP4", "POP3", "SMTP", "MAPI", "Exchange ActiveSync",
+    "Authenticated SMTP", "AutoDiscover", "Exchange Online PowerShell",
+    "Exchange Web Services", "Offline Address Book", "Outlook Anywhere (RPC over HTTP)"
+]);
+
+SigninLogs
+| where TimeGenerated > ago(lookback)
+| where ResultType == "0"                     // successful sign-in
+| where ClientAppUsed in~ (legacy_clients)
+    or tostring(column_ifexists("AuthenticationRequirement", "")) == "singleFactorAuthentication"
+| extend
+    IsLegacy = ClientAppUsed in~ (legacy_clients),
+    MfaSatisfied = tostring(column_ifexists("AuthenticationRequirement", "")) == "multiFactorAuthentication"
+| where IsLegacy or not(MfaSatisfied)
+| project
+    TimeGenerated,
+    UserPrincipalName,
+    ClientAppUsed,
+    IPAddress,
+    Location = tostring(column_ifexists("Location", "")),
+    AppDisplayName,
+    IsLegacy,
+    MfaSatisfied
+| extend
+    AlertName = "Azure AD Legacy Auth / MFA Bypass",
+    Severity = "High",
+    TechniqueId = "T1078.004",
+    TechniqueName = "Valid Accounts: Cloud Accounts (Legacy Auth / MFA Bypass)",
+    Description = strcat(
+        "Successful sign-in for '", UserPrincipalName, "' via '", ClientAppUsed,
+        "' from ", IPAddress, " (", Location, "). ",
+        iff(IsLegacy, "Legacy protocol cannot enforce MFA.", "MFA not satisfied.")
+    )
+| sort by TimeGenerated desc

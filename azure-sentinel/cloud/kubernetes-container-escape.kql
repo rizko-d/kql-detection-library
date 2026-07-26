@@ -1,0 +1,73 @@
+// === MITRE ATT&CK ===
+// Technique: T1611 — Escape to Host (Kubernetes Container Escape)
+// Tactic: Privilege Escalation
+// Severity: High
+// Data Source: AzureDiagnostics / ContainerLogV2 (AKS audit), Kubernetes API server audit logs
+//
+// Detects: Kubernetes pod creation with dangerous configurations that enable
+// container escape to the host node — privileged containers, host namespace
+// sharing (hostPID / hostNetwork / hostIPC), host filesystem mounts, and
+// added Linux capabilities (SYS_ADMIN). These are the primary vectors an
+// attacker uses to break out of a container and compromise the underlying node.
+//
+// Key indicators:
+// - Pod spec with securityContext.privileged = true
+// - hostPID / hostNetwork / hostIPC = true
+// - hostPath volume mounting the node filesystem (/, /var/run/docker.sock)
+// - capabilities.add including SYS_ADMIN / SYS_PTRACE / NET_ADMIN
+// - Pods deployed to kube-system by non-system users
+//
+// False Positives:
+// - Legitimate infrastructure pods (CNI, CSI drivers, monitoring agents)
+// - Node-level DaemonSets that require host access by design
+//
+// Recommended Response:
+// 1. Identify who created the pod and the namespace
+// 2. Inspect the exact dangerous fields (privileged, hostPath, capabilities)
+// 3. Determine if it matches a known infrastructure workload
+// 4. If malicious: delete the pod, revoke the identity, audit the node
+// 5. Enforce Pod Security Admission / OPA Gatekeeper to block these specs
+// === QUERY ===
+
+let lookback = 1d;
+let dangerous_markers = dynamic([
+    "\"privileged\":true", "\"privileged\": true",
+    "\"hostpid\":true", "\"hostnetwork\":true", "\"hostipc\":true",
+    "\"hostpath\"", "/var/run/docker.sock", "\"path\":\"/\"",
+    "sys_admin", "sys_ptrace", "net_admin", "dac_read_search"
+]);
+
+// AKS/Kubernetes API server audit events flow into AzureDiagnostics (kube-audit)
+AzureDiagnostics
+| where TimeGenerated > ago(lookback)
+| where Category in ("kube-audit", "kube-audit-admin")
+| extend AuditText = tolower(tostring(column_ifexists("log_s", "")))
+| where AuditText has "\"verb\":\"create\"" or AuditText has "\"verb\":\"update\""
+| where AuditText has "\"resource\":\"pods\"" or AuditText has "\"kind\":\"pod\""
+| where AuditText has_any (dangerous_markers)
+| extend
+    Namespace = extract(@"""namespace"":""([^""]+)""", 1, AuditText),
+    PodName = extract(@"""name"":""([^""]+)""", 1, AuditText),
+    Username = extract(@"""username"":""([^""]+)""", 1, AuditText),
+    SourceIP = extract(@"""sourceips"":\[""([^""]+)""", 1, AuditText)
+| extend
+    DangerReason = case(
+        AuditText has "\"privileged\":true" or AuditText has "\"privileged\": true", "Privileged container",
+        AuditText has "/var/run/docker.sock", "Docker socket mount",
+        AuditText has_any (dynamic(["\"hostpid\":true", "\"hostnetwork\":true", "\"hostipc\":true"])), "Host namespace sharing",
+        AuditText has "\"hostpath\"", "Host path volume mount",
+        AuditText has_any (dynamic(["sys_admin", "sys_ptrace", "net_admin"])), "Dangerous Linux capability added",
+        "Container-escape-enabling pod spec"
+    )
+| project
+    TimeGenerated, Namespace, PodName, Username, SourceIP, DangerReason
+| extend
+    AlertName = "Kubernetes Container Escape Configuration",
+    Severity = "High",
+    TechniqueId = "T1611",
+    TechniqueName = "Escape to Host",
+    Description = strcat(
+        "Pod '", PodName, "' in namespace '", Namespace, "' created by '",
+        Username, "' (", SourceIP, ") with escape-enabling config: ", DangerReason, "."
+    )
+| sort by TimeGenerated desc

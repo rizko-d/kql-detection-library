@@ -1,0 +1,77 @@
+// === MITRE ATT&CK ===
+// Technique: T1071.001 — Application Layer Protocol: Web Protocols (C2 via JA3/S TLS fingerprint)
+// Tactic: Command and Control
+// Severity: High
+// Data Source: DeviceNetworkEvents, CommonSecurityLog (Zeek/Suricata TLS logs with JA3/JA3S)
+//
+// Detects: C2 traffic by matching JA3 / JA3S TLS fingerprints against known
+// malicious/C2-framework hashes. JA3 fingerprints the TLS client hello (and JA3S
+// the server hello), so implants using a specific TLS library produce a
+// consistent fingerprint even when the destination IP/domain rotates. This rule
+// matches against a watchlist of known-bad JA3/JA3S values and flags rare
+// fingerprints seen talking to external hosts.
+//
+// Key indicators:
+// - JA3 / JA3S hash matching a known C2 framework (Cobalt Strike, Metasploit,
+//   Sliver, Empire, Meterpreter default TLS stacks)
+// - A rare JA3 fingerprint appearing across multiple hosts (shared implant)
+// - JA3 from a non-browser process to an external destination
+//
+// False Positives:
+// - Legitimate apps sharing a TLS library that collides with a flagged JA3
+// - JA3 hashes change with library versions — maintain the watchlist
+//
+// Recommended Response:
+// 1. Confirm the JA3/JA3S against current threat intel (fingerprints drift)
+// 2. Identify the process and destination for the flagged fingerprint
+// 3. Pivot on the fingerprint across the fleet (find all implants)
+// 4. Block destinations and isolate hosts
+// 5. Update the JA3 watchlist from fresh CTI
+//
+// NOTE: JA3/JA3S requires TLS metadata enrichment (Zeek/Suricata or a Sentinel
+// watchlist). Replace the inline known_bad_ja3 set with a Sentinel Watchlist
+// lookup (_GetWatchlist('ja3_c2')) in production.
+// === QUERY ===
+
+let lookback = 1d;
+// Known-bad / C2-framework JA3 fingerprints (examples — maintain from CTI / watchlist)
+let known_bad_ja3 = dynamic([
+    "a0e9f5d64349fb13191bc781f81f42e1",   // common Cobalt Strike default (example)
+    "72a589da586844d7f0818ce684948eea",   // Meterpreter TLS (example)
+    "e7d705a3286e19ea42f587b344ee6865",   // Sliver (example)
+    "6734f37431670b3ab4292b8f60f29984",   // Metasploit (example)
+    "3b5074b1b5d032e5620f69f9f700ff0e"    // Empire (example)
+]);
+
+// Assumes TLS logs enriched with JA3/JA3S (e.g., via Zeek/Suricata -> CommonSecurityLog
+// or a custom table). Adjust column names to your enrichment source.
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where RemoteIPType == "Public"
+| extend JA3 = tolower(tostring(column_ifexists("JA3Hash", ""))),
+         JA3S = tolower(tostring(column_ifexists("JA3SHash", "")))
+| where isnotempty(JA3)
+| where JA3 in~ (known_bad_ja3) or JA3S in~ (known_bad_ja3)
+| summarize
+    ConnectionCount = count(),
+    Destinations = make_set(RemoteIP, 50),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, JA3, JA3S
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "C2 TLS Fingerprint (JA3/JA3S) Match",
+    Severity = "High",
+    TechniqueId = "T1071.001",
+    TechniqueName = "Application Layer Protocol: Web Protocols (JA3/JA3S)",
+    Description = strcat(
+        "Host '", DeviceName, "' produced a known-bad JA3 fingerprint '", JA3,
+        "' across ", ConnectionCount, " connection(s) to ",
+        array_length(Destinations), " destination(s) — consistent with a known C2 framework."
+    )
+| project
+    TimeGenerated, DeviceName, JA3, JA3S, ConnectionCount, Destinations, Processes,
+    FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by ConnectionCount desc

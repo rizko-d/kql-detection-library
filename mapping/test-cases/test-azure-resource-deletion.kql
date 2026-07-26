@@ -1,0 +1,27 @@
+// === Test Case: Azure Bulk Resource Deletion ===
+// Simulates: one principal deleting 6 resources incl. a resource group and a
+// recovery vault in minutes (malicious destruction) + a single test VM delete.
+// Expected: 1 high alert (burst + high-impact deletes).
+// Query expects: AzureActivity
+
+let TestAzureActivity = datatable(
+    TimeGenerated: datetime,
+    OperationNameValue: string,
+    ActivityStatusValue: string,
+    Caller: string,
+    HTTPRequest: string,
+    Resource: string
+)
+[
+    // Malicious: destructive burst
+    datetime(2025-07-26 12:00:00), "Microsoft.Resources/subscriptions/resourceGroups/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "prod-rg",
+    datetime(2025-07-26 12:00:30), "Microsoft.RecoveryServices/vaults/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "prod-backup-vault",
+    datetime(2025-07-26 12:01:00), "Microsoft.Compute/virtualMachines/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "VM-PROD-01",
+    datetime(2025-07-26 12:01:30), "Microsoft.Storage/storageAccounts/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "prodstorage",
+    datetime(2025-07-26 12:02:00), "Microsoft.Network/networkSecurityGroups/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "prod-nsg",
+    datetime(2025-07-26 12:02:30), "Microsoft.Compute/disks/delete", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "prod-disk-01",
+    // Benign: single test VM delete (should NOT fire — below burst, low impact alone)
+    datetime(2025-07-26 15:00:00), "Microsoft.Compute/virtualMachines/delete", "Succeeded", "devops@contoso.com", "{\"clientIpAddress\":\"20.50.1.1\"}", "VM-TEST-99",
+];
+
+TestAzureActivity

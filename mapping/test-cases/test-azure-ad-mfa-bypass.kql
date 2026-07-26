@@ -1,0 +1,24 @@
+// === Test Case: Azure AD Legacy Auth / MFA Bypass ===
+// Simulates: successful IMAP4 legacy auth sign-in (malicious) + a modern
+// MFA-satisfied browser sign-in (benign).
+// Expected: 1 alert (legacy protocol cannot enforce MFA).
+// Query expects: SigninLogs
+
+let TestSigninLogs = datatable(
+    TimeGenerated: datetime,
+    ResultType: string,
+    ClientAppUsed: string,
+    UserPrincipalName: string,
+    IPAddress: string,
+    Location: string,
+    AppDisplayName: string,
+    AuthenticationRequirement: string
+)
+[
+    // Malicious: legacy IMAP4 auth success
+    datetime(2025-07-26 03:00:00), "0", "IMAP4", "jsmith@contoso.com", "185.220.101.50", "RU", "Office 365 Exchange Online", "singleFactorAuthentication",
+    // Benign: modern browser + MFA (should NOT fire)
+    datetime(2025-07-26 09:00:00), "0", "Browser", "akim@contoso.com", "20.50.1.1", "US", "Microsoft 365", "multiFactorAuthentication",
+];
+
+TestSigninLogs

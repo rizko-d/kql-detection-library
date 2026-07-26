@@ -1,0 +1,77 @@
+// === MITRE ATT&CK ===
+// Technique: T1530 — Data from Cloud Storage (Blob Storage Public Access / Anonymous Enumeration)
+// Tactic: Collection
+// Severity: High
+// Data Source: StorageBlobLogs, AzureDiagnostics (Storage)
+//
+// Detects: Anonymous or misconfigured access to Azure Blob Storage — anonymous
+// (unauthenticated) requests, container/blob enumeration (List operations), and
+// access to storage set to public. Publicly exposed storage is a top cause of
+// cloud data breaches; attackers scan for and enumerate open containers.
+//
+// Key indicators:
+// - Requests with AuthenticationType = "Anonymous"
+// - ListBlobs / ListContainers operations from anonymous or external callers
+// - High volume of GetBlob from a single external IP (bulk download)
+// - Access to a storage account/container newly made public
+//
+// False Positives:
+// - Intentionally public content (static websites, public datasets, CDN origins)
+// - Anonymous read of assets by design (public blob for a website)
+//
+// Recommended Response:
+// 1. Identify the storage account/container and whether public access is intended
+// 2. Review the anonymous caller IPs and the blobs accessed
+// 3. If unintended: disable anonymous/public access, rotate SAS tokens/keys
+// 4. Assess what data was exposed / downloaded
+// 5. Enforce "public access disabled" via Azure Policy
+// === QUERY ===
+
+let lookback = 1d;
+let bulk_download_threshold = 100;
+
+StorageBlobLogs
+| where TimeGenerated > ago(lookback)
+| extend
+    AuthType = tostring(column_ifexists("AuthenticationType", "")),
+    Op = tostring(OperationName),
+    CallerIP = tostring(column_ifexists("CallerIpAddress", "")),
+    Account = tostring(column_ifexists("AccountName", "")),
+    StatusText = tostring(column_ifexists("StatusText", "")),
+    Uri = tostring(column_ifexists("Uri", ""))
+| where AuthType =~ "Anonymous"
+    or Op has_any ("ListBlobs", "ListContainers")
+| where StatusText has "Success" or toint(column_ifexists("StatusCode", 0)) between (200 .. 299)
+| summarize
+    RequestCount = count(),
+    Operations = make_set(Op, 15),
+    AnonymousCount = countif(AuthType =~ "Anonymous"),
+    EnumerationCount = countif(Op has_any (dynamic(["ListBlobs", "ListContainers"]))),
+    BlobsAccessed = dcount(Uri),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Account, CallerIP
+| where AnonymousCount > 0 or EnumerationCount > 0 or RequestCount >= bulk_download_threshold
+| extend
+    SuspicionReason = case(
+        EnumerationCount > 0 and AnonymousCount > 0, "Anonymous container/blob enumeration",
+        AnonymousCount > 0, "Anonymous (unauthenticated) blob access",
+        EnumerationCount > 0, "Blob/container enumeration",
+        "High-volume blob access (possible bulk download)"
+    ),
+    TimeGenerated = LastSeen,
+    AlertName = "Blob Storage Public / Anonymous Access",
+    Severity = "High",
+    TechniqueId = "T1530",
+    TechniqueName = "Data from Cloud Storage",
+    Description = strcat(
+        "Storage account '", Account, "' received ", RequestCount,
+        " request(s) from '", CallerIP, "' (", AnonymousCount,
+        " anonymous, ", EnumerationCount, " enumeration). ", SuspicionReason, "."
+    )
+| project
+    TimeGenerated, Account, CallerIP, RequestCount, AnonymousCount,
+    EnumerationCount, BlobsAccessed, Operations, SuspicionReason,
+    FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by RequestCount desc

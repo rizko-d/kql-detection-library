@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 30 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
-| **Tactics Covered** | 9 of 14 |
-| **Techniques Covered** | 30 of ~200 |
+| **Total Rules** | 45 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Tactics Covered** | 12 of 14 |
+| **Techniques Covered** | 45 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -95,12 +95,32 @@
 |---|---|---|---|
 | [DNS Tunneling](azure-sentinel/command-and-control/dns-tunneling.kql) | T1572 | High | DnsEvents |
 | [Beaconing Pattern](azure-sentinel/command-and-control/beaconing-pattern.kql) | T1071.001 | High | DeviceNetworkEvents (MDE) |
+| [C2 over WebSocket](azure-sentinel/command-and-control/c2-over-websocket.kql) | T1071.001 | High | DeviceNetworkEvents (MDE) |
+| [C2 JA3/JA3S Fingerprint](azure-sentinel/command-and-control/c2-ja3-fingerprint.kql) | T1071.001 | High | DeviceNetworkEvents (TLS/JA3) |
+| [ICMP / Protocol Tunneling](azure-sentinel/command-and-control/icmp-protocol-tunneling.kql) | T1571 | Medium/High | DeviceNetworkEvents (MDE) |
 
 ### Exfiltration
 
 | Rule | Technique | Severity | Data Source |
 |---|---|---|---|
 | [Unusual Outbound Traffic](azure-sentinel/exfiltration/unusual-outbound-traffic.kql) | T1048 | High | DeviceNetworkEvents (MDE) |
+| [Large File Upload](azure-sentinel/exfiltration/large-file-upload.kql) | T1030 | Medium | DeviceNetworkEvents (MDE) |
+| [Cloud Storage Exfiltration](azure-sentinel/exfiltration/cloud-storage-exfiltration.kql) | T1567.002 | Medium/High | DeviceNetworkEvents (MDE) |
+
+### Cloud & Kubernetes
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [Azure AD MFA Bypass / Legacy Auth](azure-sentinel/cloud/azure-ad-mfa-bypass.kql) | T1078.004 | High | SigninLogs |
+| [OAuth Consent Grant](azure-sentinel/cloud/oauth-consent-grant.kql) | T1528 | High | AuditLogs (Azure AD) |
+| [Service Principal Abuse](azure-sentinel/cloud/service-principal-abuse.kql) | T1098 | High | AuditLogs, AADServicePrincipalSignInLogs |
+| [Kubernetes Container Escape](azure-sentinel/cloud/kubernetes-container-escape.kql) | T1611 | High | AzureDiagnostics (kube-audit) |
+| [Key Vault Access Anomaly](azure-sentinel/cloud/key-vault-access-anomaly.kql) | T1552.005 | High | AzureDiagnostics (Key Vault) |
+| [Kubernetes RBAC Abuse](azure-sentinel/cloud/kubernetes-rbac-abuse.kql) | T1087.004 | High | AzureDiagnostics (kube-audit) |
+| [Azure VM Run Command Abuse](azure-sentinel/cloud/azure-vm-run-command-abuse.kql) | T1059.009 | High | AzureActivity |
+| [Blob Storage Public Access](azure-sentinel/cloud/blob-storage-public-access.kql) | T1530 | High | StorageBlobLogs |
+| [Azure Resource Deletion](azure-sentinel/cloud/azure-resource-deletion.kql) | T1485 | High | AzureActivity |
+| [Logic App / Automation Abuse](azure-sentinel/cloud/logic-app-automation-abuse.kql) | T1053.006 | Medium/High | AzureActivity |
 
 ## Rule Format
 
@@ -168,29 +188,29 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **SMB Named Pipe Impersonation** (T1550.003) — \\pipe\\\* access after SMB session
 - [x] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
 
-### v0.4 — Exfiltration & C2 (+10 rules)
+### v0.4 — Exfiltration & C2 (+10 rules) ✅ COMPLETE
 - [x] **Unusual Outbound Traffic** (T1048) — Egress volume anomaly from non-web servers
 - [x] **DNS Tunneling Anomaly** (T1572) — High-entropy subdomains, TXT query bursts
 - [x] **Beaconing Pattern Detection** (T1071.001) — Periodic HTTP/HTTPS connection interval analysis
-- [ ] **Large File Upload Anomaly** (T1030) — File uploads > 100MB via web / cloud storage
+- [x] **Large File Upload Anomaly** (T1030) — File uploads > 100MB via web / cloud storage
 - [x] **Data Staging Detection** (T1074) — Archive creation (zip/rar/7z) on sensitive shares
-- [ ] **C2 Over WebSocket** (T1071.001) — Long-lived WebSocket connections to rare domains
-- [ ] **C2 Over HTTPS (JA3/S)** — JA3 hash clustering for known C2 frameworks
-- [ ] **Cloud Storage Exfiltration** (T1567.002) — Files uploaded to personal cloud (Dropbox, GDrive)
+- [x] **C2 Over WebSocket** (T1071.001) — Long-lived WebSocket connections to rare domains
+- [x] **C2 Over HTTPS (JA3/S)** — JA3 hash clustering for known C2 frameworks
+- [x] **Cloud Storage Exfiltration** (T1567.002) — Files uploaded to personal cloud (Dropbox, GDrive)
 - [x] **Email Forwarding Exfiltration** (T1114.003) — Auto-forwarding rule creation to external domain
-- [ ] **ICMP / Custom Protocol Tunneling** (T1571) — Non-DNS/HTTP outbound protocol anomalies
+- [x] **ICMP / Custom Protocol Tunneling** (T1571) — Non-DNS/HTTP outbound protocol anomalies
 
-### v0.5 — Cloud-Specific & Kubernetes (+10 rules)
-- [ ] **Azure AD MFA Bypass / Legacy Auth** (T1078.004) — Legacy protocol auth, no MFA conditional access
-- [ ] **Suspicious OAuth Consent Grant** (T1525.001) — Third-party app consent with high permissions
-- [ ] **Anomalous Service Principal Usage** (T1098) — New SPN / client secret outside business hours
-- [ ] **Container Escape Detection** (T1611) — --privileged flag, host mount, --pid=host
-- [ ] **Azure Key Vault Access Anomaly** (T1552.005) — Secret access from unexpected IP / region
-- [ ] **Kubernetes RBAC Abuse** (T1087.004) — ClusterRole escalation, secret enumeration via API
-- [ ] **Azure VM Run Command Abuse** (T1059.009) — RunCommand / Invoke-AzVMRunCommand
-- [ ] **Blob Storage Public Access** (T1530) — Anonymous blob enumeration, storage account misconfig
-- [ ] **Azure Resource Deletion** (T1485) — Bulk resource group / NSG deletion within minutes
-- [ ] **Azure Logic App / Automation Account Abuse** (T1053.006) — Suspicious runbook/job creation
+### v0.5 — Cloud-Specific & Kubernetes (+10 rules) ✅ COMPLETE
+- [x] **Azure AD MFA Bypass / Legacy Auth** (T1078.004) — Legacy protocol auth, no MFA conditional access
+- [x] **Suspicious OAuth Consent Grant** (T1528) — Third-party app consent with high permissions
+- [x] **Anomalous Service Principal Usage** (T1098) — New SPN / client secret outside business hours
+- [x] **Container Escape Detection** (T1611) — privileged flag, host mount, hostPID/hostNetwork
+- [x] **Azure Key Vault Access Anomaly** (T1552.005) — Bulk secret access / unexpected identity
+- [x] **Kubernetes RBAC Abuse** (T1087.004) — ClusterRole escalation, secret enumeration via API
+- [x] **Azure VM Run Command Abuse** (T1059.009) — RunCommand / custom script extension RCE
+- [x] **Blob Storage Public Access** (T1530) — Anonymous blob enumeration, storage account misconfig
+- [x] **Azure Resource Deletion** (T1485) — Bulk resource group / NSG deletion within minutes
+- [x] **Azure Logic App / Automation Account Abuse** (T1053.006) — Suspicious runbook/job creation
 
 ### v0.6 — Hunting & Baseline (+10 queries)
 - [ ] **Threat Hunting Queries Module** — `hunting-queries/` directory

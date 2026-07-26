@@ -1,0 +1,25 @@
+// === Test Case: Blob Storage Public / Anonymous Access ===
+// Simulates: anonymous ListBlobs + GetBlob from an external IP (malicious
+// enumeration) + an authenticated internal read (benign).
+// Expected: 1 alert (anonymous enumeration).
+// Query expects: StorageBlobLogs
+
+let TestStorageBlobLogs = datatable(
+    TimeGenerated: datetime,
+    AuthenticationType: string,
+    OperationName: string,
+    CallerIpAddress: string,
+    AccountName: string,
+    StatusText: string,
+    StatusCode: int,
+    Uri: string
+)
+[
+    // Malicious: anonymous container enumeration
+    datetime(2025-07-26 12:00:00), "Anonymous", "ListBlobs", "185.220.101.50", "prodstorage", "Success", 200, "https://prodstorage.blob.core.windows.net/backups?comp=list",
+    datetime(2025-07-26 12:00:05), "Anonymous", "GetBlob", "185.220.101.50", "prodstorage", "Success", 200, "https://prodstorage.blob.core.windows.net/backups/db.bak",
+    // Benign: authenticated internal read (should NOT fire — not anonymous, not enum)
+    datetime(2025-07-26 09:00:00), "SAS", "GetBlob", "10.0.1.5", "appstorage", "Success", 200, "https://appstorage.blob.core.windows.net/assets/logo.png",
+];
+
+TestStorageBlobLogs

@@ -1,0 +1,74 @@
+// === MITRE ATT&CK ===
+// Technique: T1059.009 — Command and Scripting Interpreter: Cloud API (Azure VM Run Command Abuse)
+// Tactic: Execution
+// Severity: High
+// Data Source: AzureActivity
+//
+// Detects: Abuse of the Azure VM "Run Command" / custom script extension feature,
+// which lets an operator execute arbitrary commands inside a VM via the Azure
+// control plane — no RDP/SSH or in-guest credentials required. Attackers with
+// compromised Azure RBAC (Contributor / VM Contributor) use this for remote code
+// execution, credential theft, and lateral movement across the fleet.
+//
+// Key indicators:
+// - runCommand / runCommands operations (Microsoft.Compute/.../runCommand/action)
+// - CustomScriptExtension deployments (Microsoft.Compute/.../extensions/write)
+// - Run Command issued to many VMs in a short window (fleet-wide execution)
+// - Operations from an unusual principal / IP
+//
+// False Positives:
+// - Legitimate automation (Azure Automation, config management, patching)
+// - Admins troubleshooting VMs via Run Command
+// - Deployment pipelines using custom script extensions
+//
+// Recommended Response:
+// 1. Identify the caller, the target VM(s), and the operation
+// 2. Where possible, retrieve the executed script content
+// 3. Assess blast radius (how many VMs targeted)
+// 4. If unauthorized: revoke the principal's RBAC, isolate VMs, rotate creds
+// 5. Restrict Run Command via Azure Policy / PIM just-in-time roles
+// === QUERY ===
+
+let lookback = 1d;
+let runcommand_ops = dynamic([
+    "microsoft.compute/virtualmachines/runcommand/action",
+    "microsoft.compute/virtualmachines/runcommands/write",
+    "microsoft.compute/virtualmachines/extensions/write",
+    "microsoft.compute/virtualmachinescalesets/virtualmachines/runcommand/action"
+]);
+
+AzureActivity
+| where TimeGenerated > ago(lookback)
+| extend OpLower = tolower(OperationNameValue)
+| where OpLower has_any (runcommand_ops)
+    or (OpLower has "extensions/write" and tolower(tostring(column_ifexists("Properties", ""))) has "customscript")
+| extend
+    Caller = tostring(column_ifexists("Caller", "")),
+    CallerIP = tostring(parse_json(tostring(column_ifexists("HTTPRequest", ""))).clientIpAddress),
+    TargetVM = tostring(column_ifexists("Resource", "")),
+    ResourceGroup = tostring(column_ifexists("ResourceGroup", ""))
+| summarize
+    OperationCount = count(),
+    TargetVMs = make_set(TargetVM, 50),
+    Operations = make_set(OperationNameValue, 10),
+    CallerIPs = make_set(CallerIP, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Caller
+| extend VMCount = array_length(TargetVMs)
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Azure VM Run Command Abuse",
+    Severity = iff(VMCount >= 3, "High", "Medium"),
+    TechniqueId = "T1059.009",
+    TechniqueName = "Command and Scripting Interpreter: Cloud API (Run Command)",
+    Description = strcat(
+        "Principal '", Caller, "' executed Run Command / custom script on ",
+        VMCount, " VM(s) via ", OperationCount,
+        " operation(s) — remote code execution through the Azure control plane."
+    )
+| project
+    TimeGenerated, Caller, VMCount, TargetVMs, OperationCount, Operations,
+    CallerIPs, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by VMCount desc

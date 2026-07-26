@@ -1,0 +1,71 @@
+// === MITRE ATT&CK ===
+// Technique: T1030 — Data Transfer Size Limits (Large File Upload Anomaly)
+// Tactic: Exfiltration
+// Severity: Medium
+// Data Source: DeviceNetworkEvents, DeviceFileEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Large individual file uploads to external / web destinations — a
+// direct exfiltration indicator. Complements the volume-baseline rule by
+// focusing on single large transfers (or a burst of chunked transfers that sum
+// to a large volume) to a single external endpoint, especially from browsers,
+// curl/wget, or scripting engines uploading to file-sharing services.
+//
+// Key indicators:
+// - A single connection (or session) sending > 100 MB outbound to a public IP
+// - Upload-capable processes (browsers, curl, wget, powershell, python) egressing
+// - Transfers to file-sharing / paste / cloud endpoints
+// - Chunked transfers summing to a large total within a short window
+//
+// False Positives:
+// - Legitimate cloud backup / sync, video conferencing uploads
+// - Software/artifact publishing, CI/CD uploads
+// - Large legitimate email attachments via web clients
+//
+// Recommended Response:
+// 1. Identify the destination and the uploading process
+// 2. Determine what file/data was uploaded
+// 3. Check destination reputation (file-sharing, paste sites, personal cloud)
+// 4. Correlate with prior data staging on the host
+// 5. Block the destination and investigate if unauthorized
+// === QUERY ===
+
+let lookback = 1d;
+let upload_threshold = 104857600;   // 100 MB per host->dest session
+let upload_processes = dynamic([
+    "chrome.exe", "msedge.exe", "firefox.exe", "curl.exe", "wget.exe",
+    "powershell.exe", "pwsh.exe", "python.exe", "python3.exe",
+    "dropbox.exe", "onedrive.exe", "googledrivesync.exe", "megasync.exe",
+    "filezilla.exe", "winscp.exe", "rclone.exe"
+]);
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType == "ConnectionSuccess"
+| where RemoteIPType == "Public"
+| summarize
+    TotalSent = sum(tolong(column_ifexists("SentBytes", 0))),
+    ConnectionCount = count(),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    SampleUrl = any(column_ifexists("RemoteUrl", "")),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, RemoteIP, RemotePort
+| where TotalSent >= upload_threshold
+| extend
+    UploadProcessInvolved = set_has_element(Processes, "curl.exe")
+        or Processes has_any (upload_processes),
+    TimeGenerated = LastSeen,
+    AlertName = "Large File Upload Anomaly",
+    Severity = "Medium",
+    TechniqueId = "T1030",
+    TechniqueName = "Data Transfer Size Limits",
+    Description = strcat(
+        "Host '", DeviceName, "' uploaded ", format_bytes(TotalSent),
+        " to '", RemoteIP, ":", RemotePort, "' across ", ConnectionCount,
+        " connection(s) — possible large-file exfiltration."
+    )
+| project
+    TimeGenerated, DeviceName, RemoteIP, RemotePort, TotalSent, ConnectionCount,
+    Processes, SampleUrl, UploadProcessInvolved, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TotalSent desc

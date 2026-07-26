@@ -1,0 +1,26 @@
+// === Test Case: C2 over WebSocket ===
+// Simulates: a non-browser process (svchost) holding a wss connection to an
+// external host (malicious) + a browser WebSocket that is short-lived (benign).
+// Expected: 1 high alert (non-browser WebSocket).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RemoteIPType: string,
+    RemoteIP: string,
+    RemotePort: int,
+    RemoteUrl: string,
+    AdditionalFields: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: non-browser process opening a wss channel
+    datetime(2025-07-26 12:00:00), "ConnectionSuccess", "Public", "185.100.50.10", 443, "wss://c2.evil.com/socket", "{\"protocol\":\"websocket\"}", "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:10:00), "ConnectionSuccess", "Public", "185.100.50.10", 443, "wss://c2.evil.com/socket", "{\"protocol\":\"websocket\"}", "svchost.exe", "WS-001",
+    // Benign: browser short-lived websocket (should NOT fire)
+    datetime(2025-07-26 14:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, "wss://chat.contoso.com", "{\"Upgrade\":\"websocket\"}", "chrome.exe", "WS-005",
+];
+
+TestDeviceNetworkEvents

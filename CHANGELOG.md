@@ -1,15 +1,34 @@
 # Changelog
 
+## v0.5 — 2025-07-26
+### Added — Cloud-Specific & Kubernetes (COMPLETE, 10 of 10 rules)
+- **Azure AD MFA Bypass / Legacy Auth** (T1078.004) — legacy protocol sign-ins that evade MFA
+- **OAuth Consent Grant** (T1528) — illicit consent to apps requesting high-risk Graph scopes
+- **Service Principal Abuse** (T1098) — app credential adds / anomalous SP sign-ins
+- **Kubernetes Container Escape** (T1611) — privileged pods, hostPath, docker.sock, capabilities
+- **Key Vault Access Anomaly** (T1552.005) — bulk secret dumping / unexpected identity
+- **Kubernetes RBAC Abuse** (T1087.004) — cluster-admin bindings, secret enumeration, self-review
+- **Azure VM Run Command Abuse** (T1059.009) — control-plane RCE via Run Command / custom script
+- **Blob Storage Public Access** (T1530) — anonymous enumeration / public blob access
+- **Azure Resource Deletion** (T1485) — destructive bulk delete of RGs / vaults / NSGs
+- **Logic App / Automation Abuse** (T1053.006) — runbook / workflow persistence
+- New `cloud/` rule category; test cases for all 10 rules
+
 ## v0.4 — 2025-07-26
-### Added — Exfiltration & C2 (partial, 5 of 10 rules)
+### Added — Exfiltration & C2 (COMPLETE, 10 of 10 rules)
 - **Unusual Outbound Traffic** (T1048) — per-device egress baseline + z-score anomaly detection
 - **DNS Tunneling** (T1572) — high unique-subdomain count, long/high-entropy queries, TXT-heavy
 - **Beaconing Pattern** (T1071.001) — regular inter-connection interval (low jitter) C2 detection
+- **Large File Upload** (T1030) — single large outbound transfer to external endpoints
 - **Data Staging** (T1074) — rar/7z/Compress-Archive with password/staging-path/sensitive-source
+- **C2 over WebSocket** (T1071.001) — long-lived / non-browser WebSocket channels
+- **C2 JA3/JA3S Fingerprint** (T1071.001) — TLS fingerprint match against known C2 frameworks
+- **Cloud Storage Exfiltration** (T1567.002) — uploads to consumer cloud (Dropbox/GDrive/Mega)
 - **Email Forwarding Exfiltration** (T1114.003) — external inbox forwarding rules (BEC)
+- **ICMP / Protocol Tunneling** (T1571) — covert channels over ICMP / non-standard protocols
 - New `exfiltration/`, `command-and-control/`, and `collection/` rule categories
-- Test cases for all 5 new rules
-- Updated MITRE ATT&CK matrix (9 tactics, 30 rules)
+- Test cases for all 10 rules
+- Updated MITRE ATT&CK matrix (12 tactics, 45 rules)
 
 ## v0.3 — 2025-07-26
 ### Added — Lateral Movement & Discovery (COMPLETE, 10 of 10 rules)

@@ -1,0 +1,25 @@
+// === Test Case: Suspicious OAuth Consent Grant ===
+// Simulates: a consent grant to a third-party app requesting Mail.Read +
+// offline_access (malicious illicit consent) + a low-risk User.Read consent.
+// Expected: 1 alert (high-risk scopes granted).
+// Query expects: AuditLogs (Azure AD)
+
+let TestAuditLogs = datatable(
+    TimeGenerated: datetime,
+    OperationName: string,
+    TargetResources: dynamic,
+    InitiatedBy: string,
+    Result: string
+)
+[
+    // Malicious: consent to app requesting Mail.Read + offline_access
+    datetime(2025-07-26 12:00:00), "Consent to application",
+    dynamic([{"displayName":"totally-legit-app","modifiedProperties":[{"displayName":"ConsentAction.Permissions","newValue":"Mail.Read offline_access Files.ReadWrite.All"}]}]),
+    "{\"user\":{\"userPrincipalName\":\"jsmith@contoso.com\"}}", "success",
+    // Benign: consent to low-risk User.Read (should NOT fire)
+    datetime(2025-07-26 13:00:00), "Consent to application",
+    dynamic([{"displayName":"corp-hr-tool","modifiedProperties":[{"displayName":"ConsentAction.Permissions","newValue":"User.Read openid profile"}]}]),
+    "{\"user\":{\"userPrincipalName\":\"akim@contoso.com\"}}", "success",
+];
+
+TestAuditLogs

@@ -1,0 +1,28 @@
+// === Test Case: Key Vault Bulk / Anomalous Access ===
+// Simulates: one identity pulling 25 distinct secrets from a vault in minutes
+// (malicious bulk dump) + a normal app reading its 2 secrets (benign).
+// Expected: 1 alert (DistinctSecrets >= 20).
+// Query expects: AzureDiagnostics (Key Vault, ResourceType VAULTS)
+
+let TestAzureDiagnostics = datatable(
+    TimeGenerated: datetime,
+    ResourceType: string,
+    OperationName: string,
+    Resource: string,
+    CallerIPAddress: string,
+    identity_claim_upn_s: string,
+    id_s: string
+)
+[
+    // Malicious: bulk secret dump — 25 distinct secrets (representative sample of 5)
+    datetime(2025-07-26 12:00:00), "VAULTS", "SecretGet", "PROD-VAULT", "185.220.101.50", "attacker@contoso.com", "https://prod-vault.vault.azure.net/secrets/db-conn-01",
+    datetime(2025-07-26 12:00:01), "VAULTS", "SecretGet", "PROD-VAULT", "185.220.101.50", "attacker@contoso.com", "https://prod-vault.vault.azure.net/secrets/api-key-02",
+    datetime(2025-07-26 12:00:02), "VAULTS", "SecretGet", "PROD-VAULT", "185.220.101.50", "attacker@contoso.com", "https://prod-vault.vault.azure.net/secrets/svc-pass-03",
+    datetime(2025-07-26 12:00:03), "VAULTS", "SecretGet", "PROD-VAULT", "185.220.101.50", "attacker@contoso.com", "https://prod-vault.vault.azure.net/secrets/token-04",
+    datetime(2025-07-26 12:00:04), "VAULTS", "SecretGet", "PROD-VAULT", "185.220.101.50", "attacker@contoso.com", "https://prod-vault.vault.azure.net/secrets/cert-05",
+    // Benign: app reading 2 of its own secrets (should NOT fire — below threshold)
+    datetime(2025-07-26 09:00:00), "VAULTS", "SecretGet", "APP-VAULT", "10.0.1.5", "app-identity", "https://app-vault.vault.azure.net/secrets/config-a",
+    datetime(2025-07-26 09:00:01), "VAULTS", "SecretGet", "APP-VAULT", "10.0.1.5", "app-identity", "https://app-vault.vault.azure.net/secrets/config-b",
+];
+
+TestAzureDiagnostics

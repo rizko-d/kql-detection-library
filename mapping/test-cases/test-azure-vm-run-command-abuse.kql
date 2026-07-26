@@ -1,0 +1,25 @@
+// === Test Case: Azure VM Run Command Abuse ===
+// Simulates: one principal issuing Run Command to 4 VMs (malicious fleet RCE) +
+// a single legitimate Run Command for troubleshooting (benign / medium).
+// Expected: 1 high alert (VMCount >= 3).
+// Query expects: AzureActivity
+
+let TestAzureActivity = datatable(
+    TimeGenerated: datetime,
+    OperationNameValue: string,
+    Caller: string,
+    HTTPRequest: string,
+    Resource: string,
+    ResourceGroup: string
+)
+[
+    // Malicious: Run Command across 4 VMs
+    datetime(2025-07-26 12:00:00), "Microsoft.Compute/virtualMachines/runCommand/action", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "VM-PROD-01", "prod-rg",
+    datetime(2025-07-26 12:01:00), "Microsoft.Compute/virtualMachines/runCommand/action", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "VM-PROD-02", "prod-rg",
+    datetime(2025-07-26 12:02:00), "Microsoft.Compute/virtualMachines/runCommand/action", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "VM-PROD-03", "prod-rg",
+    datetime(2025-07-26 12:03:00), "Microsoft.Compute/virtualMachines/runCommand/action", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "VM-PROD-04", "prod-rg",
+    // Benign: single legit Run Command by admin (medium, separate caller)
+    datetime(2025-07-26 15:00:00), "Microsoft.Compute/virtualMachines/runCommand/action", "admin@contoso.com", "{\"clientIpAddress\":\"20.50.1.1\"}", "VM-TEST-01", "test-rg",
+];
+
+TestAzureActivity

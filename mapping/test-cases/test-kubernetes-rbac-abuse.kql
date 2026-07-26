@@ -1,0 +1,24 @@
+// === Test Case: Kubernetes RBAC Abuse / Enumeration ===
+// Simulates: a service account creating a cluster-admin binding + listing
+// secrets (malicious) + a normal user get on a single configmap (benign).
+// Expected: 1 alert (privileged binding + secret enumeration by SA).
+// Query expects: AzureDiagnostics (kube-audit)
+
+let TestAzureDiagnostics = datatable(
+    TimeGenerated: datetime,
+    Category: string,
+    log_s: string
+)
+[
+    // Malicious: SA creates cluster-admin binding
+    datetime(2025-07-26 12:00:00), "kube-audit",
+    '{"verb":"create","objectRef":{"resource":"clusterrolebindings","name":"pwn-binding"},"user":{"username":"system:serviceaccount:default:default"},"sourceIPs":["10.240.0.5"],"requestObject":{"roleRef":{"kind":"ClusterRole","name":"cluster-admin"}}}',
+    // Malicious: same SA enumerates secrets
+    datetime(2025-07-26 12:00:30), "kube-audit",
+    '{"verb":"list","objectRef":{"resource":"secrets","namespace":"kube-system"},"user":{"username":"system:serviceaccount:default:default"},"sourceIPs":["10.240.0.5"]}',
+    // Benign: normal user reads a configmap (should NOT fire)
+    datetime(2025-07-26 13:00:00), "kube-audit",
+    '{"verb":"get","objectRef":{"resource":"configmaps","namespace":"apps","name":"app-config"},"user":{"username":"alice"},"sourceIPs":["10.240.0.9"]}',
+];
+
+TestAzureDiagnostics

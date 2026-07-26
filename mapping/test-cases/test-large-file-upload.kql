@@ -1,0 +1,25 @@
+// === Test Case: Large File Upload Anomaly ===
+// Simulates: WS-001 uploading 300MB via curl to an external IP (malicious) +
+// a small normal upload that should stay below the 100MB floor.
+// Expected: 1 alert (TotalSent >= 100MB).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RemoteIPType: string,
+    RemoteIP: string,
+    RemotePort: int,
+    SentBytes: long,
+    RemoteUrl: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: 300MB upload via curl to external host
+    datetime(2025-07-26 22:00:00), "ConnectionSuccess", "Public", "185.220.101.50", 443, 314572800, "hxxps://transfer.sh", "curl.exe", "WS-001",
+    // Benign: small 5MB upload (should NOT fire — below 100MB floor)
+    datetime(2025-07-26 10:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 5242880, "hxxps://portal", "chrome.exe", "WS-005",
+];
+
+TestDeviceNetworkEvents

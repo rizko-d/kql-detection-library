@@ -1,0 +1,90 @@
+// === MITRE ATT&CK ===
+// Technique: T1053.006 — Scheduled Task/Job: Cloud (Azure Logic App / Automation Account Abuse)
+// Tactic: Persistence, Execution
+// Severity: Medium
+// Data Source: AzureActivity, AzureDiagnostics (Automation / Logic Apps)
+//
+// Detects: Abuse of Azure Automation Accounts and Logic Apps for persistence and
+// execution. Attackers create or modify runbooks / Logic App workflows to run
+// arbitrary code on a schedule or trigger, establishing durable cloud
+// persistence that survives credential resets. Runbooks can run as a privileged
+// Automation identity, enabling ongoing control-plane actions.
+//
+// Key indicators:
+// - Create/update of Automation runbooks (Microsoft.Automation/.../runbooks/write)
+// - Runbook draft publish + schedule/webhook creation
+// - Logic App workflow creation/modification (Microsoft.Logic/workflows/write)
+// - New webhooks or schedules attached to runbooks/workflows
+// - Activity by an unusual principal or outside business hours
+//
+// False Positives:
+// - Legitimate automation / DevOps building runbooks and workflows
+// - IaC deployments provisioning Logic Apps / Automation
+// - Scheduled operational tasks
+//
+// Recommended Response:
+// 1. Identify the principal, the runbook/workflow, and the trigger (schedule/webhook)
+// 2. Retrieve and review the runbook/workflow definition
+// 3. If malicious: disable/delete it, remove webhooks, rotate the Automation identity
+// 4. Check what the automation identity can access (blast radius)
+// 5. Restrict who can author runbooks/workflows; monitor writes
+// === QUERY ===
+
+let lookback = 1d;
+let automation_ops = dynamic([
+    "microsoft.automation/automationaccounts/runbooks/write",
+    "microsoft.automation/automationaccounts/runbooks/draft/write",
+    "microsoft.automation/automationaccounts/runbooks/publish/action",
+    "microsoft.automation/automationaccounts/webhooks/write",
+    "microsoft.automation/automationaccounts/schedules/write",
+    "microsoft.automation/automationaccounts/jobs/write",
+    "microsoft.logic/workflows/write",
+    "microsoft.logic/workflows/triggers/write",
+    "microsoft.web/sites/write"
+]);
+
+AzureActivity
+| where TimeGenerated > ago(lookback)
+| extend OpLower = tolower(OperationNameValue)
+| where OpLower has_any (automation_ops)
+| where tostring(column_ifexists("ActivityStatusValue", "")) in~ ("Success", "Succeeded", "Started", "Accepted")
+| extend
+    Caller = tostring(column_ifexists("Caller", "")),
+    CallerIP = tostring(parse_json(tostring(column_ifexists("HTTPRequest", ""))).clientIpAddress),
+    Resource = tostring(column_ifexists("Resource", "")),
+    ResourceGroup = tostring(column_ifexists("ResourceGroup", "")),
+    HourOfDay = datetime_part("hour", TimeGenerated)
+| extend
+    ArtifactType = case(
+        OpLower has "runbook", "Automation runbook",
+        OpLower has "webhook", "Automation webhook (trigger)",
+        OpLower has "schedule", "Automation schedule",
+        OpLower has "logic/workflows", "Logic App workflow",
+        "Automation/Logic artifact"
+    ),
+    OffHours = (HourOfDay < 6 or HourOfDay >= 20)
+| summarize
+    OperationCount = count(),
+    ArtifactTypes = make_set(ArtifactType),
+    Resources = make_set(Resource, 30),
+    Operations = make_set(OperationNameValue, 15),
+    AnyOffHours = maxif(1, OffHours),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Caller, CallerIP
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Azure Logic App / Automation Account Abuse",
+    Severity = iff(AnyOffHours == 1, "High", "Medium"),
+    TechniqueId = "T1053.006",
+    TechniqueName = "Scheduled Task/Job: Cloud (Automation / Logic App)",
+    Description = strcat(
+        "Principal '", Caller, "' from ", CallerIP, " created/modified ",
+        OperationCount, " automation artifact(s): ", strcat_array(ArtifactTypes, ", "),
+        iff(AnyOffHours == 1, " (outside business hours).", ".")
+    )
+| project
+    TimeGenerated, Caller, CallerIP, OperationCount, ArtifactTypes, Resources,
+    Operations, AnyOffHours, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by OperationCount desc

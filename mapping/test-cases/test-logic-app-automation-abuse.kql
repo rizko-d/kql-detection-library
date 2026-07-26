@@ -1,0 +1,24 @@
+// === Test Case: Azure Logic App / Automation Account Abuse ===
+// Simulates: a principal creating a runbook + webhook off-hours (malicious
+// persistence) + a daytime Logic App workflow edit (benign / medium).
+// Expected: 1 high alert (runbook + webhook off-hours).
+// Query expects: AzureActivity
+
+let TestAzureActivity = datatable(
+    TimeGenerated: datetime,
+    OperationNameValue: string,
+    ActivityStatusValue: string,
+    Caller: string,
+    HTTPRequest: string,
+    Resource: string,
+    ResourceGroup: string
+)
+[
+    // Malicious: runbook + webhook created at 02:00 (off-hours persistence)
+    datetime(2025-07-26 02:00:00), "Microsoft.Automation/automationAccounts/runbooks/write", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "EvilRunbook", "prod-rg",
+    datetime(2025-07-26 02:01:00), "Microsoft.Automation/automationAccounts/webhooks/write", "Succeeded", "attacker@contoso.com", "{\"clientIpAddress\":\"185.220.101.50\"}", "EvilWebhook", "prod-rg",
+    // Benign: daytime Logic App edit by devops (should be medium, separate caller)
+    datetime(2025-07-26 10:00:00), "Microsoft.Logic/workflows/write", "Succeeded", "devops@contoso.com", "{\"clientIpAddress\":\"20.50.1.1\"}", "OrderProcessing", "app-rg",
+];
+
+TestAzureActivity

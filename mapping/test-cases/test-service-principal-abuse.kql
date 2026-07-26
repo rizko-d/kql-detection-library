@@ -1,0 +1,24 @@
+// === Test Case: Anomalous Service Principal / App Credential Activity ===
+// Simulates: a new client secret added to an app registration off-hours
+// (malicious backdoor) + a normal daytime credential rotation.
+// Expected: 1 alert (app credential added off-hours).
+// Query expects: AuditLogs (Azure AD)
+
+let TestAuditLogs = datatable(
+    TimeGenerated: datetime,
+    OperationName: string,
+    TargetResources: dynamic,
+    InitiatedBy: string
+)
+[
+    // Malicious: secret added to privileged app at 02:00 (off-hours backdoor)
+    datetime(2025-07-26 02:00:00), "Add service principal credentials",
+    dynamic([{"displayName":"Privileged-Automation-App"}]),
+    "{\"user\":{\"userPrincipalName\":\"attacker@contoso.com\",\"ipAddress\":\"185.220.101.50\"}}",
+    // Benign: daytime credential rotation (still flagged as add but daytime → lower)
+    datetime(2025-07-26 10:00:00), "Add service principal credentials",
+    dynamic([{"displayName":"CICD-Pipeline-App"}]),
+    "{\"user\":{\"userPrincipalName\":\"devops@contoso.com\",\"ipAddress\":\"20.50.1.1\"}}",
+];
+
+TestAuditLogs

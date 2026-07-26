@@ -1,0 +1,84 @@
+// === MITRE ATT&CK ===
+// Technique: T1087.004 — Account Discovery: Cloud Account (Kubernetes RBAC Abuse)
+// Tactic: Discovery, Privilege Escalation
+// Severity: High
+// Data Source: AzureDiagnostics (kube-audit), Kubernetes API server audit logs
+//
+// Detects: Kubernetes RBAC abuse and enumeration — a service account or user
+// creating/binding privileged ClusterRoles, enumerating secrets cluster-wide,
+// or performing self-subject-access-review reconnaissance. Attackers who land in
+// a pod probe their permissions, then escalate by creating role bindings to
+// cluster-admin or dumping all secrets.
+//
+// Key indicators:
+// - create/update on clusterrolebindings or rolebindings granting cluster-admin
+// - Bulk "list/get secrets" across namespaces (secret enumeration)
+// - selfsubjectaccessreviews / selfsubjectrulesreviews (permission probing)
+// - RBAC changes made by a service account rather than an admin user
+//
+// False Positives:
+// - Legitimate cluster administration and GitOps controllers (Flux, ArgoCD)
+// - Operators that manage RBAC as part of their function
+// - CI/CD provisioning roles
+//
+// Recommended Response:
+// 1. Identify the subject (user / service account) and the RBAC change or query
+// 2. Check whether cluster-admin or broad secret access was granted
+// 3. If malicious: remove the binding, revoke the SA token, audit the namespace
+// 4. Investigate how the identity was obtained (pod compromise?)
+// 5. Enforce least-privilege RBAC and admission controls
+// === QUERY ===
+
+let lookback = 1d;
+
+AzureDiagnostics
+| where TimeGenerated > ago(lookback)
+| where Category in ("kube-audit", "kube-audit-admin")
+| extend AuditText = tolower(tostring(column_ifexists("log_s", "")))
+| extend
+    Verb = extract(@"""verb"":""([^""]+)""", 1, AuditText),
+    Resource = extract(@"""resource"":""([^""]+)""", 1, AuditText),
+    Username = extract(@"""username"":""([^""]+)""", 1, AuditText),
+    Namespace = extract(@"""namespace"":""([^""]+)""", 1, AuditText),
+    SourceIP = extract(@"""sourceips"":\[""([^""]+)""", 1, AuditText)
+| where
+    // Privileged RBAC binding creation
+    (Verb in ("create", "update", "patch") and Resource in ("clusterrolebindings", "rolebindings")
+        and (AuditText has "cluster-admin" or AuditText has "\"kind\":\"clusterrole\""))
+    // Secret enumeration
+    or (Verb in ("list", "get") and Resource == "secrets")
+    // Permission probing
+    or (Resource in ("selfsubjectaccessreviews", "selfsubjectrulesreviews"))
+| extend
+    AbuseType = case(
+        Resource in ("clusterrolebindings", "rolebindings"), "Privileged RBAC binding created/modified",
+        Resource == "secrets", "Secret enumeration",
+        Resource has "selfsubject", "Permission self-review (recon)",
+        "RBAC-related activity"
+    ),
+    IsServiceAccount = Username startswith "system:serviceaccount:"
+| summarize
+    EventCount = count(),
+    Verbs = make_set(Verb, 10),
+    Resources = make_set(Resource, 10),
+    AbuseTypes = make_set(AbuseType),
+    Namespaces = make_set(Namespace, 20),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Username, SourceIP, IsServiceAccount
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Kubernetes RBAC Abuse / Enumeration",
+    Severity = "High",
+    TechniqueId = "T1087.004",
+    TechniqueName = "Account Discovery: Cloud Account (K8s RBAC)",
+    Description = strcat(
+        iff(IsServiceAccount, "Service account '", "User '"), Username,
+        "' from ", SourceIP, " performed ", EventCount,
+        " RBAC-sensitive action(s): ", strcat_array(AbuseTypes, ", "), "."
+    )
+| project
+    TimeGenerated, Username, SourceIP, IsServiceAccount, EventCount, Verbs,
+    Resources, AbuseTypes, Namespaces, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by EventCount desc

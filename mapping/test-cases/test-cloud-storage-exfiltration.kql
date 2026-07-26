@@ -1,0 +1,25 @@
+// === Test Case: Cloud Storage Exfiltration ===
+// Simulates: rclone uploading 50MB to mega.nz (malicious, via CLI) + a small
+// browser upload to dropbox below the floor (benign).
+// Expected: 1 high alert (CLI tool + cloud storage domain).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RemoteIPType: string,
+    RemoteIP: string,
+    SentBytes: long,
+    RemoteUrl: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessAccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious: rclone uploading to mega.nz
+    datetime(2025-07-26 15:00:00), "ConnectionSuccess", "Public", "31.216.147.1", 52428800, "hxxps://mega.nz/upload", "rclone.exe", "jsmith", "WS-001",
+    // Benign: small browser upload to dropbox below 10MB floor (should NOT fire)
+    datetime(2025-07-26 16:00:00), "ConnectionSuccess", "Public", "162.125.1.1", 1048576, "hxxps://dropbox.com", "chrome.exe", "akim", "WS-005",
+];
+
+TestDeviceNetworkEvents

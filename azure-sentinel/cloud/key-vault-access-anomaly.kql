@@ -1,0 +1,70 @@
+// === MITRE ATT&CK ===
+// Technique: T1552.005 — Unsecured Credentials: Cloud Instance Metadata / Key Vault Access Anomaly
+// Tactic: Credential Access
+// Severity: High
+// Data Source: AzureDiagnostics (Key Vault AuditEvent), KeyVaultData
+//
+// Detects: Anomalous access to Azure Key Vault secrets/keys/certificates — bulk
+// secret retrieval, access from unusual IPs/identities, or access to a vault the
+// caller never touched before. Key Vault holds the crown jewels (connection
+// strings, API keys, certs); attackers who compromise an identity often try to
+// dump secrets for lateral movement and persistence.
+//
+// Key indicators:
+// - High volume of SecretGet / KeyGet operations in a short window (bulk dump)
+// - Key Vault access from an IP / identity not seen before for that vault
+// - Access to many distinct secrets by one caller (enumeration)
+// - VaultGet/List followed by rapid SecretGet across the inventory
+//
+// False Positives:
+// - Application startup reading its configured secrets
+// - Legitimate admin / DevOps secret rotation
+// - CI/CD pipelines pulling deployment secrets
+//
+// Recommended Response:
+// 1. Identify the caller identity, IP, and the secrets accessed
+// 2. Compare against the vault's normal access pattern / callers
+// 3. If unauthorized: rotate the exposed secrets immediately
+// 4. Revoke the caller's access and investigate the identity
+// 5. Tighten Key Vault access policies / RBAC and enable firewall
+// === QUERY ===
+
+let lookback = 1d;
+let bulk_threshold = 20;             // distinct secrets pulled in the window
+
+// Key Vault audit events land in AzureDiagnostics with ResourceType KEYVAULT
+AzureDiagnostics
+| where TimeGenerated > ago(lookback)
+| where ResourceType == "VAULTS"
+| where OperationName has_any ("SecretGet", "KeyGet", "CertificateGet", "SecretList", "KeyList")
+| extend
+    Vault = tostring(column_ifexists("Resource", "")),
+    CallerIP = tostring(column_ifexists("CallerIPAddress", "")),
+    Identity = tostring(column_ifexists("identity_claim_upn_s", "")),
+    ObjectId = tostring(column_ifexists("id_s", ""))
+| summarize
+    OperationCount = count(),
+    DistinctSecrets = dcount(ObjectId),
+    Operations = make_set(OperationName, 10),
+    CallerIPs = make_set(CallerIP, 20),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Vault, Identity
+| where DistinctSecrets >= bulk_threshold
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Key Vault Bulk / Anomalous Access",
+    Severity = "High",
+    TechniqueId = "T1552.005",
+    TechniqueName = "Unsecured Credentials: Cloud Secrets (Key Vault)",
+    Description = strcat(
+        "Identity '", Identity, "' accessed ", DistinctSecrets,
+        " distinct secrets/keys in vault '", Vault, "' (", OperationCount,
+        " operations) within ", datetime_diff('minute', LastSeen, FirstSeen),
+        " minutes — possible bulk secret dumping."
+    )
+| project
+    TimeGenerated, Vault, Identity, DistinctSecrets, OperationCount, Operations,
+    CallerIPs, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by DistinctSecrets desc

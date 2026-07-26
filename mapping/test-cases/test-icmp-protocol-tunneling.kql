@@ -1,0 +1,28 @@
+// === Test Case: ICMP / Non-Standard Protocol Tunneling ===
+// Simulates: a host sending 150 ICMP packets with large payloads to one external
+// host (malicious tunnel) + a few normal small pings (benign).
+// Expected: 1 alert (high volume + large avg payload).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    RemoteIPType: string,
+    RemoteIP: string,
+    Protocol: string,
+    SentBytes: long,
+    ReceivedBytes: long,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: large ICMP payloads (data-carrying tunnel) — representative sample
+    datetime(2025-07-26 12:00:00), "Public", "185.220.101.50", "ICMP", 1400, 1400, "icmpsh.exe", "WS-001",
+    datetime(2025-07-26 12:00:01), "Public", "185.220.101.50", "ICMP", 1400, 1400, "icmpsh.exe", "WS-001",
+    datetime(2025-07-26 12:00:02), "Public", "185.220.101.50", "ICMP", 1400, 1400, "icmpsh.exe", "WS-001",
+    datetime(2025-07-26 12:00:03), "Public", "185.220.101.50", "ICMP", 1400, 1400, "icmpsh.exe", "WS-001",
+    datetime(2025-07-26 12:00:04), "Public", "185.220.101.50", "ICMP", 1400, 1400, "icmpsh.exe", "WS-001",
+    // Benign: small normal ping (should NOT fire — small payload, low volume)
+    datetime(2025-07-26 14:00:00), "Public", "8.8.8.8", "ICMP", 32, 32, "ping.exe", "WS-005",
+];
+
+TestDeviceNetworkEvents

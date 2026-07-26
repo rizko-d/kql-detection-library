@@ -1,0 +1,77 @@
+// === MITRE ATT&CK ===
+// Technique: T1571 — Non-Standard Port / T1095 — Non-Application Layer Protocol (ICMP Tunneling)
+// Tactic: Command and Control, Exfiltration
+// Severity: Medium
+// Data Source: DeviceNetworkEvents (Microsoft Defender for Endpoint), CommonSecurityLog
+//
+// Detects: Covert channels using ICMP or other non-standard / non-application
+// layer protocols for C2 and exfiltration. ICMP tunneling (e.g., icmpsh, ptunnel,
+// Loki) hides data in echo request/reply payloads to bypass firewalls that allow
+// ping. Also flags unusually high ICMP volume/payload sizes and use of raw/
+// uncommon protocols to external hosts.
+//
+// Key indicators:
+// - High volume of ICMP (echo) traffic to a single external host
+// - ICMP packets with abnormally large payloads (data carrying)
+// - Sustained ICMP flows (tunnel keep-alive) rather than sporadic ping
+// - Non-standard IP protocols to external destinations
+//
+// False Positives:
+// - Network monitoring / availability checks (ping sweeps, SmokePing)
+// - Load balancer / gateway health probes
+// - Legitimate MTU path discovery
+//
+// Recommended Response:
+// 1. Identify the source host and external ICMP peer
+// 2. Assess payload sizes and flow duration (tunnel vs monitoring)
+// 3. Determine the responsible process on the host
+// 4. Block ICMP to the destination; investigate the source host
+// 5. Correlate with other C2 / exfil indicators
+// === QUERY ===
+
+let lookback = 1d;
+let icmp_count_threshold = 100;      // sustained ICMP to one host
+let large_payload_bytes = 1000;      // echo payloads carrying data
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where RemoteIPType == "Public"
+| extend Protocol = tolower(tostring(column_ifexists("Protocol", "")))
+// ICMP or non-TCP/UDP protocols to external hosts
+| where Protocol has "icmp"
+    or (isnotempty(Protocol) and Protocol !in~ ("tcp", "udp", "6", "17"))
+| summarize
+    PacketCount = count(),
+    TotalBytes = sum(tolong(column_ifexists("SentBytes", 0)) + tolong(column_ifexists("ReceivedBytes", 0))),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    Protocols = make_set(Protocol, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, RemoteIP
+| extend
+    AvgBytesPerPacket = iff(PacketCount > 0, TotalBytes / PacketCount, 0),
+    DurationMin = datetime_diff('minute', LastSeen, FirstSeen)
+// Trigger on sustained volume OR large average payloads (data-carrying tunnel)
+| where PacketCount >= icmp_count_threshold or AvgBytesPerPacket >= large_payload_bytes
+| extend
+    SuspicionReason = case(
+        AvgBytesPerPacket >= large_payload_bytes, "Large ICMP/raw payloads (data-carrying tunnel)",
+        PacketCount >= icmp_count_threshold, "High sustained ICMP/raw protocol volume to one host",
+        "Non-standard protocol egress"
+    ),
+    TimeGenerated = LastSeen,
+    AlertName = "ICMP / Non-Standard Protocol Tunneling",
+    Severity = iff(AvgBytesPerPacket >= large_payload_bytes, "High", "Medium"),
+    TechniqueId = "T1571",
+    TechniqueName = "Non-Standard Port / Protocol Tunneling",
+    Description = strcat(
+        "Host '", DeviceName, "' sent ", PacketCount, " ",
+        strcat_array(Protocols, "/"), " packets to '", RemoteIP,
+        "' (avg ", AvgBytesPerPacket, " bytes/pkt over ", DurationMin, " min). ",
+        SuspicionReason, "."
+    )
+| project
+    TimeGenerated, DeviceName, RemoteIP, Protocols, PacketCount, TotalBytes,
+    AvgBytesPerPacket, DurationMin, Processes, SuspicionReason,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by AvgBytesPerPacket desc, PacketCount desc

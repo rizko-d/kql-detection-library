@@ -1,0 +1,80 @@
+// === MITRE ATT&CK ===
+// Technique: T1485 — Data Destruction (Azure Bulk Resource Deletion)
+// Tactic: Impact
+// Severity: High
+// Data Source: AzureActivity
+//
+// Detects: Rapid bulk deletion of Azure resources — resource groups, VMs, disks,
+// storage accounts, NSGs, and backups deleted en masse within a short window.
+// This is the cloud analogue of ransomware/wiper impact: a compromised or
+// malicious privileged identity destroys infrastructure and data, or deletes
+// security controls (NSGs, diagnostic settings) to disable defenses.
+//
+// Key indicators:
+// - Multiple "delete" operations by one caller in a short window
+// - Deletion of resource groups (cascade delete of everything inside)
+// - Deletion of backups / recovery vaults (anti-recovery)
+// - Deletion of NSGs / diagnostic settings (defense evasion before impact)
+//
+// False Positives:
+// - Legitimate decommissioning / teardown of environments
+// - IaC (Terraform destroy) tearing down ephemeral/test resource groups
+// - Automated cleanup jobs
+//
+// Recommended Response:
+// 1. Identify the caller, IP, and the set of resources deleted
+// 2. Verify against change-management / IaC pipelines
+// 3. If unauthorized: revoke the identity, invoke resource locks, restore from backup
+// 4. Check for prior defense-evasion deletions (NSG / diagnostic settings)
+// 5. Apply resource locks and PIM to high-impact delete permissions
+// === QUERY ===
+
+let lookback = 1d;
+let delete_burst_threshold = 5;
+let high_impact_types = dynamic([
+    "resourcegroups/delete", "microsoft.recoveryservices/vaults/delete",
+    "microsoft.compute/virtualmachines/delete", "microsoft.compute/disks/delete",
+    "microsoft.storage/storageaccounts/delete",
+    "microsoft.network/networksecuritygroups/delete",
+    "microsoft.insights/diagnosticsettings/delete",
+    "microsoft.keyvault/vaults/delete",
+    "microsoft.sql/servers/databases/delete"
+]);
+
+AzureActivity
+| where TimeGenerated > ago(lookback)
+| extend OpLower = tolower(OperationNameValue)
+| where OpLower endswith "/delete" or OpLower has "delete"
+| where tostring(column_ifexists("ActivityStatusValue", "")) in~ ("Success", "Succeeded", "Started", "Accepted")
+| extend
+    Caller = tostring(column_ifexists("Caller", "")),
+    CallerIP = tostring(parse_json(tostring(column_ifexists("HTTPRequest", ""))).clientIpAddress),
+    Resource = tostring(column_ifexists("Resource", "")),
+    IsHighImpact = OpLower has_any (high_impact_types)
+| summarize
+    DeleteCount = count(),
+    HighImpactCount = countif(IsHighImpact),
+    Resources = make_set(Resource, 50),
+    Operations = make_set(OperationNameValue, 20),
+    CallerIPs = make_set(CallerIP, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Caller
+| where DeleteCount >= delete_burst_threshold or HighImpactCount >= 1
+| extend WindowMin = datetime_diff('minute', LastSeen, FirstSeen)
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "Azure Bulk Resource Deletion",
+    Severity = iff(HighImpactCount >= 1 and DeleteCount >= delete_burst_threshold, "High", "Medium"),
+    TechniqueId = "T1485",
+    TechniqueName = "Data Destruction",
+    Description = strcat(
+        "Principal '", Caller, "' performed ", DeleteCount, " delete operation(s) (",
+        HighImpactCount, " high-impact) within ", WindowMin,
+        " minutes — possible destructive impact / anti-recovery activity."
+    )
+| project
+    TimeGenerated, Caller, DeleteCount, HighImpactCount, WindowMin, Resources,
+    Operations, CallerIPs, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by HighImpactCount desc, DeleteCount desc

@@ -1,0 +1,21 @@
+// === Test Case: Kubernetes Container Escape Configuration ===
+// Simulates: a kube-audit event creating a privileged pod with hostPath /
+// docker.sock (malicious) + a normal pod create (benign).
+// Expected: 1 alert (privileged + docker.sock).
+// Query expects: AzureDiagnostics (kube-audit)
+
+let TestAzureDiagnostics = datatable(
+    TimeGenerated: datetime,
+    Category: string,
+    log_s: string
+)
+[
+    // Malicious: privileged pod with docker.sock mount
+    datetime(2025-07-26 12:00:00), "kube-audit",
+    '{"verb":"create","objectRef":{"resource":"pods","namespace":"default","name":"pwn-pod"},"user":{"username":"system:serviceaccount:default:default"},"sourceIPs":["10.240.0.5"],"requestObject":{"spec":{"containers":[{"securityContext":{"privileged":true}}],"volumes":[{"hostPath":{"path":"/var/run/docker.sock"}}]}}}',
+    // Benign: normal unprivileged pod (should NOT fire)
+    datetime(2025-07-26 13:00:00), "kube-audit",
+    '{"verb":"create","objectRef":{"resource":"pods","namespace":"apps","name":"web-1"},"user":{"username":"alice"},"sourceIPs":["10.240.0.9"],"requestObject":{"spec":{"containers":[{"image":"nginx"}]}}}',
+];
+
+TestAzureDiagnostics

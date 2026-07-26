@@ -1,0 +1,73 @@
+// === MITRE ATT&CK ===
+// Technique: T1071.001 — Application Layer Protocol: Web Protocols (C2 over WebSocket)
+// Tactic: Command and Control
+// Severity: High
+// Data Source: DeviceNetworkEvents (Microsoft Defender for Endpoint), CommonSecurityLog
+//
+// Detects: C2 channels tunneled over WebSocket (ws:// / wss://). Modern C2
+// frameworks and malware increasingly use long-lived WebSocket connections
+// because they blend with legitimate web-app traffic and keep a persistent
+// bidirectional channel open. Flags long-duration WebSocket connections to
+// rare/external endpoints, especially from non-browser processes.
+//
+// Key indicators:
+// - Connections to WebSocket ports/paths (ws/wss, Upgrade: websocket)
+// - Long-lived connections (persistent channel) to external IPs
+// - WebSocket initiated by a non-browser process (implant)
+// - Connection to a newly-seen / low-reputation destination
+//
+// False Positives:
+// - Legitimate web apps using WebSockets (chat, collaboration, trading, dashboards)
+// - Browsers maintaining WebSocket sessions
+// - Dev tooling and live-reload servers
+//
+// Recommended Response:
+// 1. Identify the process holding the WebSocket connection
+// 2. Non-browser process + external rare host = high suspicion
+// 3. Check destination reputation and TLS certificate
+// 4. Correlate with beaconing / other C2 indicators
+// 5. Block the endpoint and isolate the host if confirmed C2
+// === QUERY ===
+
+let lookback = 1d;
+let browser_processes = dynamic(["chrome.exe", "msedge.exe", "firefox.exe", "iexplore.exe", "opera.exe", "brave.exe"]);
+let long_conn_threshold_sec = 300;   // persistent channel
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType == "ConnectionSuccess"
+| where RemoteIPType == "Public"
+// WebSocket indicators: ws/wss URLs, Upgrade header, or common WS ports on non-browser processes
+| where (column_ifexists("RemoteUrl", "") has "ws://" or column_ifexists("RemoteUrl", "") has "wss://")
+    or (AdditionalFields has "websocket" or AdditionalFields has "Upgrade")
+| extend
+    IsBrowser = InitiatingProcessFileName in~ (browser_processes),
+    RemoteUrl = column_ifexists("RemoteUrl", "")
+| summarize
+    ConnectionCount = count(),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    SampleUrl = any(RemoteUrl),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    AnyBrowser = maxif(1, IsBrowser)
+    by DeviceName, RemoteIP, RemotePort
+| extend DurationSec = datetime_diff('second', LastSeen, FirstSeen)
+// Focus on non-browser WebSocket usage (implant-like) or unusually long channels
+| where AnyBrowser == 0 or DurationSec >= long_conn_threshold_sec
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "C2 over WebSocket",
+    Severity = iff(AnyBrowser == 0, "High", "Medium"),
+    TechniqueId = "T1071.001",
+    TechniqueName = "Application Layer Protocol: Web Protocols (WebSocket)",
+    Description = strcat(
+        "WebSocket connection from '", DeviceName, "' to '", RemoteIP, ":",
+        RemotePort, "' (", ConnectionCount, " conn, ", DurationSec, "s). ",
+        iff(AnyBrowser == 0, "Initiated by non-browser process (implant-like).",
+            "Long-lived WebSocket channel.")
+    )
+| project
+    TimeGenerated, DeviceName, RemoteIP, RemotePort, SampleUrl, ConnectionCount,
+    DurationSec, Processes, AnyBrowser, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by Severity asc, DurationSec desc

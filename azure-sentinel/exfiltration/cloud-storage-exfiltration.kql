@@ -1,0 +1,77 @@
+// === MITRE ATT&CK ===
+// Technique: T1567.002 — Exfiltration Over Web Service: Exfiltration to Cloud Storage
+// Tactic: Exfiltration
+// Severity: Medium
+// Data Source: DeviceNetworkEvents (Microsoft Defender for Endpoint), CommonSecurityLog
+//
+// Detects: Data exfiltration to personal / third-party cloud storage services
+// (Dropbox, Google Drive, Mega, pCloud, WeTransfer, etc.). Attackers and
+// insiders use consumer cloud services to move data out because the traffic
+// looks routine. Flags significant uploads to known cloud-storage domains,
+// especially from non-sanctioned apps or unusual hosts.
+//
+// Key indicators:
+// - Uploads to consumer cloud-storage / file-transfer domains
+// - Large SentBytes to those destinations
+// - Access from CLI tools (rclone, curl) rather than the official client
+// - Data movement to services not sanctioned by the organization
+//
+// False Positives:
+// - Sanctioned use of cloud storage (if org allows Dropbox/GDrive)
+// - Personal use on BYOD (policy-dependent)
+// - Browser sync / legitimate sharing
+//
+// Recommended Response:
+// 1. Identify the cloud service, host, and uploading process
+// 2. Determine if the service is sanctioned by policy
+// 3. Estimate the volume uploaded
+// 4. Correlate with data staging / collection beforehand
+// 5. Apply DLP / CASB controls and investigate the user
+// === QUERY ===
+
+let lookback = 1d;
+let upload_floor = 10485760;        // 10 MB — lower floor since these are cloud dests
+let cloud_storage_domains = dynamic([
+    "dropbox.com", "dropboxusercontent.com", "drive.google.com",
+    "googleusercontent.com", "storage.googleapis.com", "mega.nz", "mega.io",
+    "mega.co.nz", "pcloud.com", "wetransfer.com", "we.tl", "mediafire.com",
+    "sendspace.com", "anonfiles.com", "gofile.io", "file.io", "transfer.sh",
+    "box.com", "sync.com", "icedrive.net", "4shared.com", "zippyshare.com",
+    "onedrive.live.com", "sharepoint.com", "s3.amazonaws.com", "backblazeb2.com"
+]);
+let cli_tools = dynamic(["rclone.exe", "curl.exe", "wget.exe", "powershell.exe", "pwsh.exe", "python.exe"]);
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType == "ConnectionSuccess"
+| where RemoteIPType == "Public"
+| extend RemoteUrl = tolower(tostring(column_ifexists("RemoteUrl", ""))),
+         RemoteHost = tolower(tostring(column_ifexists("RemoteUrl", "")))
+| where RemoteUrl has_any (cloud_storage_domains)
+| extend MatchedService = tostring(extract(@"([a-z0-9\-]+\.(?:com|nz|io|net|tl|org|co\.nz|live\.com))", 1, RemoteUrl))
+| summarize
+    TotalSent = sum(tolong(column_ifexists("SentBytes", 0))),
+    ConnectionCount = count(),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    Services = make_set(MatchedService, 20),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, Account = tostring(column_ifexists("InitiatingProcessAccountName", ""))
+| where TotalSent >= upload_floor
+| extend
+    ViaCLI = Processes has_any (cli_tools),
+    TimeGenerated = LastSeen,
+    AlertName = "Cloud Storage Exfiltration",
+    Severity = iff(Processes has_any (cli_tools), "High", "Medium"),
+    TechniqueId = "T1567.002",
+    TechniqueName = "Exfiltration Over Web Service: Cloud Storage",
+    Description = strcat(
+        "Host '", DeviceName, "' (", Account, ") uploaded ", format_bytes(TotalSent),
+        " to cloud storage service(s): ", strcat_array(Services, ", "),
+        iff(Processes has_any (cli_tools), " via CLI tooling (rclone/curl/etc).", ".")
+    )
+| project
+    TimeGenerated, DeviceName, Account, TotalSent, ConnectionCount, Services,
+    Processes, ViaCLI, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TotalSent desc

@@ -1,0 +1,24 @@
+// === Test Case: C2 TLS Fingerprint (JA3/JA3S) Match ===
+// Simulates: a host producing a known-bad Cobalt Strike JA3 to an external IP
+// (malicious) + a normal browser JA3 that is not on the watchlist (benign).
+// Expected: 1 alert (JA3 in known_bad set).
+// Query expects: DeviceNetworkEvents with JA3Hash enrichment
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    RemoteIPType: string,
+    RemoteIP: string,
+    JA3Hash: string,
+    JA3SHash: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: known-bad Cobalt Strike JA3
+    datetime(2025-07-26 12:00:00), "Public", "185.220.101.50", "a0e9f5d64349fb13191bc781f81f42e1", "ec74a5c51106f0419184d0dd08fb05bc", "rundll32.exe", "WS-001",
+    datetime(2025-07-26 12:05:00), "Public", "185.220.101.50", "a0e9f5d64349fb13191bc781f81f42e1", "ec74a5c51106f0419184d0dd08fb05bc", "rundll32.exe", "WS-001",
+    // Benign: normal browser JA3 not on watchlist (should NOT fire)
+    datetime(2025-07-26 14:00:00), "Public", "20.50.1.1", "e7d61e3b6f5c8a92f1d4b0a7c3e9f2d1", "aabbccddeeff00112233445566778899", "chrome.exe", "WS-005",
+];
+
+TestDeviceNetworkEvents

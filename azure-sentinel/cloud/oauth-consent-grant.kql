@@ -1,0 +1,71 @@
+// === MITRE ATT&CK ===
+// Technique: T1528 / T1525 — Steal Application Access Token / Implant Internal Image (Suspicious OAuth Consent)
+// Tactic: Credential Access, Persistence
+// Severity: High
+// Data Source: AuditLogs (Azure AD), CloudAppEvents
+//
+// Detects: Risky OAuth application consent grants — the "illicit consent grant"
+// attack. An attacker tricks a user (or admin) into consenting to a malicious
+// third-party app that requests high-privilege Graph permissions (Mail.Read,
+// Mail.Send, Files.ReadWrite.All, offline_access), giving persistent API access
+// to the mailbox/data without needing the password or MFA.
+//
+// Key indicators:
+// - "Consent to application" / "Add app role assignment grant to user"
+// - App requesting high-risk scopes (Mail.*, Files.ReadWrite.All, Directory.*,
+//   offline_access, full_access_as_user)
+// - Consent to a newly-registered or unverified publisher app
+// - User (not admin) consenting to broad delegated permissions
+//
+// False Positives:
+// - Legitimate business apps onboarded with admin consent
+// - Well-known verified-publisher SaaS integrations
+//
+// Recommended Response:
+// 1. Identify the app (AppId), the scopes granted, and who consented
+// 2. Check the publisher verification status and app age
+// 3. If malicious: revoke the grant, remove the service principal, revoke tokens
+// 4. Review mailbox rules / data access performed by the app
+// 5. Restrict user consent (admin-consent workflow) going forward
+// === QUERY ===
+
+let lookback = 1d;
+let high_risk_scopes = dynamic([
+    "mail.read", "mail.readwrite", "mail.send", "mailboxsettings.readwrite",
+    "files.read.all", "files.readwrite.all", "sites.readwrite.all",
+    "directory.read.all", "directory.readwrite.all", "user.read.all",
+    "offline_access", "full_access_as_user", "ews.accessasuser.all",
+    "group.readwrite.all", "application.readwrite.all"
+]);
+
+AuditLogs
+| where TimeGenerated > ago(lookback)
+| where OperationName has_any ("Consent to application", "Add app role assignment", "Add delegated permission grant")
+| extend
+    TargetApp = tostring(TargetResources[0].displayName),
+    InitiatedByUser = tostring(column_ifexists("InitiatedBy", ""))
+| extend ModProps = TargetResources[0].modifiedProperties
+| mv-apply prop = ModProps on (
+    where tostring(prop.displayName) in~ ("ConsentAction.Permissions", "ConsentContext.IsAdminConsent", "TargetId.ServicePrincipalNames")
+    | project ScopesText = tolower(tostring(prop.newValue))
+)
+| extend GrantedHighRisk = ScopesText has_any (high_risk_scopes)
+| where GrantedHighRisk
+| project
+    TimeGenerated,
+    OperationName,
+    TargetApp,
+    ScopesText,
+    Result = tostring(column_ifexists("Result", "")),
+    InitiatedBy = tostring(parse_json(InitiatedByUser).user.userPrincipalName)
+| extend
+    AlertName = "Suspicious OAuth Consent Grant",
+    Severity = "High",
+    TechniqueId = "T1528",
+    TechniqueName = "Steal Application Access Token (Illicit Consent Grant)",
+    Description = strcat(
+        "High-risk OAuth consent granted to app '", TargetApp, "' (",
+        OperationName, ") by '", InitiatedBy,
+        "'. Requested sensitive scopes — possible illicit consent grant."
+    )
+| sort by TimeGenerated desc

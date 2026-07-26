@@ -201,3 +201,94 @@ T1114.003:
   severity: "High"
   rules:
     - "azure-sentinel/collection/email-forwarding-exfiltration.kql"
+
+T1030:
+  name: "Data Transfer Size Limits (Large File Upload)"
+  tactic: "Exfiltration"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/exfiltration/large-file-upload.kql"
+
+T1567.002:
+  name: "Exfiltration Over Web Service: Cloud Storage"
+  tactic: "Exfiltration"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/exfiltration/cloud-storage-exfiltration.kql"
+
+T1571:
+  name: "Non-Standard Port / Protocol Tunneling (ICMP)"
+  tactic: "Command and Control"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/command-and-control/icmp-protocol-tunneling.kql"
+
+T1078.004:
+  name: "Valid Accounts: Cloud Accounts (Legacy Auth / MFA Bypass)"
+  tactic: "Defense Evasion / Initial Access"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/azure-ad-mfa-bypass.kql"
+
+T1528:
+  name: "Steal Application Access Token (Illicit Consent Grant)"
+  tactic: "Credential Access"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/oauth-consent-grant.kql"
+
+T1098:
+  name: "Account Manipulation (Service Principal)"
+  tactic: "Persistence / Privilege Escalation"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/service-principal-abuse.kql"
+
+T1611:
+  name: "Escape to Host (Kubernetes Container Escape)"
+  tactic: "Privilege Escalation"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/kubernetes-container-escape.kql"
+
+T1552.005:
+  name: "Unsecured Credentials: Cloud Secrets (Key Vault)"
+  tactic: "Credential Access"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/key-vault-access-anomaly.kql"
+
+T1087.004:
+  name: "Account Discovery: Cloud Account (K8s RBAC)"
+  tactic: "Discovery / Privilege Escalation"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/kubernetes-rbac-abuse.kql"
+
+T1059.009:
+  name: "Command and Scripting Interpreter: Cloud API (Run Command)"
+  tactic: "Execution"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/azure-vm-run-command-abuse.kql"
+
+T1530:
+  name: "Data from Cloud Storage (Blob Public Access)"
+  tactic: "Collection"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/blob-storage-public-access.kql"
+
+T1485:
+  name: "Data Destruction (Azure Bulk Resource Deletion)"
+  tactic: "Impact"
+  severity: "High"
+  rules:
+    - "azure-sentinel/cloud/azure-resource-deletion.kql"
+
+T1053.006:
+  name: "Scheduled Task/Job: Cloud (Automation / Logic App)"
+  tactic: "Persistence / Execution"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/cloud/logic-app-automation-abuse.kql"

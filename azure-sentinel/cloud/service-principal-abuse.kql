@@ -1,0 +1,90 @@
+// === MITRE ATT&CK ===
+// Technique: T1098 — Account Manipulation (Anomalous Service Principal Usage)
+// Tactic: Persistence, Privilege Escalation
+// Severity: High
+// Data Source: AuditLogs, AADServicePrincipalSignInLogs, AADManagedIdentitySignInLogs
+//
+// Detects: Suspicious service principal (SP) / app credential activity — adding
+// new client secrets or certificates to an existing app, and anomalous SP
+// sign-ins. Attackers add their own credential to a privileged app registration
+// to gain a persistent, MFA-less foothold (the "add credential to app" backdoor),
+// or abuse an over-privileged SP for lateral movement in the cloud.
+//
+// Key indicators:
+// - "Add service principal credentials" / "Update application - Certificates and secrets"
+// - New client secret / key credential added to an app, especially outside business hours
+// - Service principal sign-ins from new/unusual IPs or locations
+// - SP suddenly accessing resources it never touched before
+//
+// False Positives:
+// - Legitimate app credential rotation by admins / DevOps
+// - CI/CD pipelines provisioning app secrets
+// - Automation adding managed identity credentials
+//
+// Recommended Response:
+// 1. Identify the app, who added the credential, and from where
+// 2. Verify the change against change-management records
+// 3. If unauthorized: remove the credential, rotate legitimate ones, revoke tokens
+// 4. Review what the SP accessed after the credential was added
+// 5. Restrict who can manage app credentials; enable alerts on credential adds
+// === QUERY ===
+
+let lookback = 1d;
+
+// Method 1: Credential added to an app / service principal
+let credential_added =
+    AuditLogs
+    | where TimeGenerated > ago(lookback)
+    | where OperationName has_any (
+        "Add service principal credentials",
+        "Update application - Certificates and secrets management",
+        "Update application",
+        "Add key to service principal"
+      )
+    | where OperationName has_any ("credential", "Certificates and secrets", "key")
+    | extend
+        TargetApp = tostring(TargetResources[0].displayName),
+        Actor = tostring(parse_json(tostring(column_ifexists("InitiatedBy", ""))).user.userPrincipalName),
+        ActorIP = tostring(parse_json(tostring(column_ifexists("InitiatedBy", ""))).user.ipAddress)
+    | extend HourOfDay = datetime_part("hour", TimeGenerated)
+    | project
+        TimeGenerated,
+        DetectionType = "App credential added",
+        TargetApp,
+        Actor,
+        ActorIP,
+        OffHours = (HourOfDay < 6 or HourOfDay >= 20);
+
+// Method 2: Service principal sign-in from a new IP
+let sp_signin =
+    AADServicePrincipalSignInLogs
+    | where TimeGenerated > ago(lookback)
+    | where ResultType == "0"
+    | summarize IPs = make_set(IPAddress, 20), SignInCount = count(), Apps = make_set(ServicePrincipalName, 10)
+        by ServicePrincipalId = tostring(column_ifexists("ServicePrincipalId", ""))
+    | where array_length(IPs) >= 3
+    | mv-expand IP = IPs to typeof(string)
+    | summarize by ServicePrincipalId, DistinctIPs = array_length(IPs)
+    | extend
+        TimeGenerated = now(),
+        DetectionType = "Service principal multi-IP sign-in",
+        TargetApp = ServicePrincipalId,
+        Actor = "",
+        ActorIP = "",
+        OffHours = false;
+
+union credential_added, sp_signin
+| extend
+    AlertName = "Anomalous Service Principal / App Credential Activity",
+    Severity = "High",
+    TechniqueId = "T1098",
+    TechniqueName = "Account Manipulation (Service Principal)",
+    Description = strcat(
+        "Suspicious service principal activity (", DetectionType, ") on app '",
+        TargetApp, "'", iff(Actor != "", strcat(" by '", Actor, "' from ", ActorIP), ""),
+        iff(OffHours, " (outside business hours).", ".")
+    )
+| project
+    TimeGenerated, DetectionType, TargetApp, Actor, ActorIP, OffHours,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc
