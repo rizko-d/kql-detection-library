@@ -98,91 +98,58 @@ def check_severity(content: str) -> list[str]:
     return errors
 
 
-def _strip_kql_strings(text: str) -> str:
-    """Replace KQL string literal contents with spaces to avoid bracket confusion.
+def _strip_comments_and_strings(text: str) -> str:
+    """Single-pass, space-preserving stripper that removes BOTH string literal
+    contents and // comments in one scan, so that `//` inside a string
+    (e.g. "http://") is NOT mistaken for a comment.
 
-    Handles:
-    - Single-quoted strings: '...' (verbatim in KQL)
-    - Double-quoted strings: "..." (escape sequences)
-    - Triple-quoted variants: '''...''' and double-triple-quoted
-    Uses a simple character-by-character state machine instead of
-    regex to avoid escaping issues across quote types.
+    Returns a string of identical length with string contents and comments
+    replaced by spaces, preserving bracket positions and line structure.
     """
     chars = list(text)
     i = 0
-    n = len(chars)
-    in_string = False
-    string_char = None
-    triple = None
-
+    n = len(text)
     while i < n:
-        if not in_string:
-            # Check for triple-quoted start
-            if i + 2 < n:
-                triple_candidate = text[i:i+3]
-                if triple_candidate in ('"""', "'''"):
-                    # Mark opening quotes as themselves, rest as spaces
-                    triple = triple_candidate
-                    string_char = triple_candidate[0]
-                    in_string = True
-                    i += 3
-                    while i < n and in_string:
-                        if i + 2 < n and text[i:i+3] == triple:
-                            in_string = False
-                            i += 3
-                            triple = None
-                            break
+        ch = text[i]
+        # String literal start (single or double quote)
+        if ch in ('"', "'"):
+            quote = ch
+            i += 1
+            while i < n:
+                if text[i] == '\\':          # escape: blank this + next
+                    chars[i] = ' '
+                    i += 1
+                    if i < n:
                         chars[i] = ' '
                         i += 1
                     continue
-            # Check for single/double quoted string
-            if text[i] in ('"', "'"):
-                string_char = text[i]
-                in_string = True
+                if text[i] == quote:          # closing quote — keep it
+                    i += 1
+                    break
+                chars[i] = ' '
                 i += 1
-                while i < n and in_string:
-                    if text[i] == '\\':
-                        # Escape sequence - skip next char too
-                        chars[i] = ' '
-                        i += 1
-                        if i < n:
-                            chars[i] = ' '
-                            i += 1
-                    elif text[i] == string_char:
-                        in_string = False
-                        # Keep the closing quote
-                        i += 1
-                    else:
-                        chars[i] = ' '
-                        i += 1
-                continue
+            continue
+        # Line comment — only when NOT inside a string (handled above)
+        if ch == '/' and i + 1 < n and text[i + 1] == '/':
+            while i < n and text[i] != '\n':
+                chars[i] = ' '
+                i += 1
+            continue
         i += 1
-
     return ''.join(chars)
 
 
 def check_kql_syntax(content: str) -> list[str]:
     """Basic KQL syntax checks (bracket/quote/paren pairing).
 
-    Strips comments and string literals before checking bracket
-    pairing to avoid false positives on inline KQL arrays.
+    Strips comments and string literals in a single string-aware pass before
+    checking bracket pairing, so `//` inside a string literal (e.g. a URL) is
+    not misread as a comment.
     """
     errors = []
 
-    # Build a stripped version that preserves line structure:
-    # replace comment/string content with spaces but keep same length
-    lines = content.split('\n')
-    stripped_lines = []
-    for line in lines:
-        # Remove // comments within each line
-        ci = line.find('//')
-        if ci >= 0:
-            line = line[:ci] + ' ' * (len(line) - ci)
-        stripped_lines.append(line)
-    code = '\n'.join(stripped_lines)
-
-    # Remove string literal contents (space-preserving)
-    code = _strip_kql_strings(code)
+    # Single-pass strip: string contents + // comments (space-preserving)
+    code = _strip_comments_and_strings(content)
 
     # Check bracket pairing on the space-preserved code
     # Positions now match the original content exactly

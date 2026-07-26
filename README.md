@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 10 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Total Rules** | 15 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
 | **Tactics Covered** | 4 of 14 |
-| **Techniques Covered** | 10 of ~200 |
+| **Techniques Covered** | 15 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -49,6 +49,7 @@
 | [AMSI Bypass](azure-sentinel/defense-evasion/amsi-bypass.kql) | T1562.001 | High | DeviceProcessEvents, DeviceRegistryEvents |
 | [Process Hollowing](azure-sentinel/defense-evasion/process-hollowing.kql) | T1055.012 | High | DeviceProcessEvents (MDE) |
 | [Log Clearing](azure-sentinel/defense-evasion/log-clearing.kql) | T1070.001 | High | SecurityEvent (1102), DeviceProcessEvents |
+| [DLL Search Order Hijacking](azure-sentinel/defense-evasion/dll-search-order-hijacking.kql) | T1574.001 | Medium/High | DeviceImageLoadEvents (MDE) |
 
 ### Persistence
 
@@ -56,6 +57,10 @@
 |---|---|---|---|
 | [Scheduled Task Creation](azure-sentinel/persistence/scheduled-task-creation.kql) | T1053.005 | Medium | SecurityEvent, DeviceEvents |
 | [Registry Run Key](azure-sentinel/persistence/registry-run-key.kql) | T1547.001 | Medium/High | DeviceRegistryEvents (MDE) |
+| [WMI Event Subscription](azure-sentinel/persistence/wmi-event-subscription.kql) | T1546.003 | Medium/High | SecurityEvent (5861), DeviceEvents |
+| [Startup Folder](azure-sentinel/persistence/startup-folder.kql) | T1547.001 | Medium/High | DeviceFileEvents (MDE) |
+| [BITS Jobs](azure-sentinel/persistence/bits-jobs.kql) | T1197 | Medium/High | DeviceProcessEvents (MDE) |
+| [Service Installation](azure-sentinel/persistence/service-installation.kql) | T1543.003 | Medium/High | SecurityEvent (7045/4697), DeviceProcessEvents |
 
 ## Rule Format
 
@@ -99,17 +104,17 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] Test harness per rule
 - [x] MITRE ATT&CK mapping
 
-### v0.2 — Execution & Defense Evasion (+10 rules)
+### v0.2 — Execution & Defense Evasion (+10 rules) ✅ COMPLETE
 - [x] **LSASS Access / Mimikatz Detection** (T1003.001) — ProcessAccess via lsass.exe, Event 4663
 - [x] **AMSI Bypass Detection** (T1562.001) — AmsiScanBuffer patching, registry disable
 - [x] **Process Hollowing Detection** (T1055.012) — Unbacked memory + suspended thread in trusted binaries
 - [x] **Log Clearing Detection** (T1070.001) — Event 1102 (Security log cleared), wevtutil /auditpol
 - [x] **Registry Run Key Persistence** (T1547.001) — CurrentVersion\Run modifications (Event 4657)
-- [ ] **WMI Event Subscription Persistence** (T1546.003) — \_\_EventFilter / \_\_FilterToConsumerBinding (Event 5861)
-- [ ] **Startup Folder Persistence** (T1547.001) — LNK creation in StartUp folders
-- [ ] **DLL Search Order Hijacking** (T1574.001) — DLL loads from user-writable paths
-- [ ] **BITS Jobs Persistence** (T1197) — Background Intelligent Transfer Service job creation
-- [ ] **Service Installation Detection** (T1543.003) — New service creation (Event 4697) from non-admin
+- [x] **WMI Event Subscription Persistence** (T1546.003) — \_\_EventFilter / \_\_FilterToConsumerBinding (Event 5861)
+- [x] **Startup Folder Persistence** (T1547.001) — LNK creation in StartUp folders
+- [x] **DLL Search Order Hijacking** (T1574.001) — DLL loads from user-writable paths
+- [x] **BITS Jobs Persistence** (T1197) — Background Intelligent Transfer Service job creation
+- [x] **Service Installation Detection** (T1543.003) — New service creation (Event 4697) from non-admin
 
 ### v0.3 — Lateral Movement & Discovery (+10 rules)
 - [ ] **Pass-the-Hash Detection** (T1550.002) — NTLM logon type 3 anomalies

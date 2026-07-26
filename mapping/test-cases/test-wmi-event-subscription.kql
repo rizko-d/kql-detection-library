@@ -1,0 +1,22 @@
+// === Test Case: WMI Event Subscription Persistence ===
+// Simulates: SecurityEvent 5861 registering a CommandLineEventConsumer with a
+// PowerShell payload (malicious) + a benign SCCM consumer (no suspicious markers).
+// Expected: 1 high-severity alert (PowerShell payload), 1 medium (benign).
+// Query expects: SecurityEvent (5861)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    EventData: string
+)
+[
+    // Malicious: CommandLineEventConsumer running encoded PowerShell
+    datetime(2025-07-26 09:00:00), 5861, "WS-001",
+    "CommandLineEventConsumer __FilterToConsumerBinding CommandLineTemplate=powershell.exe -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AC4ARABvAHcAbgBsAG8AYQBkAFMAdAByAGkAbgBnACkA",
+    // Benign: legitimate management consumer (should be medium, no suspicious markers)
+    datetime(2025-07-26 10:00:00), 5861, "WS-002",
+    "ActiveScriptEventConsumer __FilterToConsumerBinding Name=SCCM_Inventory MonitorEntry",
+];
+
+TestSecurityEvent

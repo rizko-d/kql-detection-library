@@ -73,3 +73,32 @@ T1547.001:
   severity: "Medium"
   rules:
     - "azure-sentinel/persistence/registry-run-key.kql"
+    - "azure-sentinel/persistence/startup-folder.kql"
+
+T1546.003:
+  name: "Event Triggered Execution: WMI Event Subscription"
+  tactic: "Persistence"
+  severity: "High"
+  rules:
+    - "azure-sentinel/persistence/wmi-event-subscription.kql"
+
+T1574.001:
+  name: "Hijack Execution Flow: DLL Search Order Hijacking"
+  tactic: "Defense Evasion"
+  severity: "High"
+  rules:
+    - "azure-sentinel/defense-evasion/dll-search-order-hijacking.kql"
+
+T1197:
+  name: "BITS Jobs"
+  tactic: "Defense Evasion"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/persistence/bits-jobs.kql"
+
+T1543.003:
+  name: "Create or Modify System Process: Windows Service"
+  tactic: "Persistence"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/persistence/service-installation.kql"

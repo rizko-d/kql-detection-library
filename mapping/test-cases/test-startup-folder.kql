@@ -1,0 +1,33 @@
+// === Test Case: Startup Folder Persistence ===
+// Simulates: a VBS payload dropped by WINWORD into the user Startup folder
+// (malicious) + a legit app LNK created by an installer (lower severity).
+// Expected: 1 high (VBS by Office), 1 medium/high (LNK by installer).
+// Query expects: DeviceFileEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceFileEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    FileName: string,
+    FolderPath: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessCommandLine: string,
+    InitiatingProcessParentFileName: string,
+    InitiatingProcessAccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious: VBS dropped by Word macro into user Startup folder
+    datetime(2025-07-26 11:00:00), "FileCreated", "update.vbs",
+    "C:\\Users\\jsmith\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\",
+    "winword.exe", "winword.exe /n invoice.docm", "explorer.exe", "jsmith", "WS-001",
+    // Malicious: EXE dropped into all-users Startup by suspicious process
+    datetime(2025-07-26 11:05:00), "FileCreated", "svchost.exe",
+    "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\",
+    "powershell.exe", "powershell.exe -enc ...", "cmd.exe", "SYSTEM", "WS-002",
+    // Legit-ish: app shortcut created by installer (LNK, medium)
+    datetime(2025-07-26 12:00:00), "FileCreated", "Zoom.lnk",
+    "C:\\Users\\akim\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\",
+    "ZoomInstaller.exe", "ZoomInstaller.exe /silent", "explorer.exe", "akim", "WS-003",
+];
+
+TestDeviceFileEvents

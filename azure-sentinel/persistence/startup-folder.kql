@@ -1,0 +1,88 @@
+// === MITRE ATT&CK ===
+// Technique: T1547.001 — Boot or Logon Autostart Execution: Startup Folder
+// Tactic: Persistence, Privilege Escalation
+// Severity: Medium
+// Data Source: DeviceFileEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Files (especially LNK shortcuts, scripts, and executables) dropped
+// into the Windows Startup folders, which auto-execute at user logon. This is
+// a simple but common persistence technique — anything placed in these folders
+// runs when the user (or any user, for the all-users path) signs in.
+//
+// Covered paths:
+// - User:      %AppData%\Microsoft\Windows\Start Menu\Programs\Startup
+// - All users: %ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup
+//
+// Key indicators:
+// - LNK / EXE / script (.bat/.vbs/.js/.ps1/.hta) written to a Startup folder
+// - File dropped by an unusual process (Office, browser, script host, archive tool)
+// - Executable payloads rather than legitimate app shortcuts
+//
+// False Positives:
+// - Legitimate software installers adding startup shortcuts
+// - User manually placing app shortcuts for convenience
+// - Enterprise deployment tools
+//
+// Recommended Response:
+// 1. Inspect the dropped file — is it a real app shortcut or a payload?
+// 2. For LNK files, resolve the target path and arguments
+// 3. Identify the writing process and its parent chain
+// 4. Remove the file and hunt for the dropper / initial access
+// === QUERY ===
+
+let lookback = 1d;
+let startup_paths = dynamic([
+    "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\",
+    "\\Start Menu\\Programs\\Startup\\"
+]);
+let payload_extensions = dynamic([
+    ".exe", ".dll", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse",
+    ".ps1", ".hta", ".scr", ".com", ".pif", ".lnk", ".wsf", ".wsh"
+]);
+let suspicious_writers = dynamic([
+    "winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe",
+    "powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe", "cscript.exe",
+    "mshta.exe", "rundll32.exe", "regsvr32.exe", "7z.exe", "winrar.exe",
+    "chrome.exe", "msedge.exe", "firefox.exe", "certutil.exe", "bitsadmin.exe"
+]);
+
+DeviceFileEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType in ("FileCreated", "FileModified", "FileRenamed")
+| extend FolderLower = tolower(FolderPath)
+| where FolderLower has_any (startup_paths)
+| extend FileExt = tolower(strcat(".", tostring(split(FileName, ".")[-1])))
+| where FileExt in~ (payload_extensions)
+| extend
+    WriterIsSuspicious = tolower(InitiatingProcessFileName) in~ (suspicious_writers),
+    IsExecutablePayload = FileExt in~ (dynamic([".exe", ".dll", ".bat", ".cmd", ".vbs", ".js", ".ps1", ".hta", ".scr", ".com", ".pif", ".wsf"]))
+| extend
+    SuspicionReason = case(
+        WriterIsSuspicious and IsExecutablePayload, "Executable payload dropped by suspicious process",
+        IsExecutablePayload, "Executable/script payload in Startup folder",
+        WriterIsSuspicious, "Startup file written by suspicious process",
+        "File added to Startup folder"
+    )
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileExt,
+    Account = InitiatingProcessAccountName,
+    WritingProcess = InitiatingProcessFileName,
+    WritingCommandLine = InitiatingProcessCommandLine,
+    ParentProcess = InitiatingProcessParentFileName,
+    WriterIsSuspicious,
+    IsExecutablePayload,
+    SuspicionReason
+| extend
+    AlertName = "Startup Folder Persistence",
+    Severity = iff(WriterIsSuspicious or IsExecutablePayload, "High", "Medium"),
+    TechniqueId = "T1547.001",
+    TechniqueName = "Boot or Logon Autostart Execution: Startup Folder",
+    Description = strcat(
+        "File '", FileName, "' written to Startup folder on '", DeviceName,
+        "' by '", WritingProcess, "' (", Account, "). ", SuspicionReason, "."
+    )
+| sort by Severity asc, TimeGenerated desc

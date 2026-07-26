@@ -1,0 +1,107 @@
+// === MITRE ATT&CK ===
+// Technique: T1543.003 — Create or Modify System Process: Windows Service
+// Tactic: Persistence, Privilege Escalation
+// Severity: Medium
+// Data Source: SecurityEvent (7045, 4697), DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Installation of new Windows services, a classic persistence and
+// privilege-escalation technique (services run as SYSTEM and auto-start).
+// Flags services with suspicious binary paths, script interpreters, encoded
+// commands, or those created via sc.exe / New-Service from unusual processes.
+// Also catches known lateral-movement / C2 service-name artifacts (PsExec,
+// Cobalt Strike default service creation).
+//
+// Key indicators:
+// - Event 7045 (System log) / 4697 (Security log) — new service installed
+// - ServiceFileName pointing to a user-writable path or a LOLBin
+// - ImagePath containing powershell -enc, cmd /c, rundll32, mshta
+// - Random / short service names (Cobalt Strike default) or PSEXESVC
+//
+// False Positives:
+// - Legitimate software installers registering services
+// - Driver installations, EDR/AV agents, management tooling (SCCM, Intune)
+//
+// Recommended Response:
+// 1. Inspect the service binary path (ImagePath / ServiceFileName)
+// 2. Check the service account (LocalSystem vs limited)
+// 3. Identify the process/account that created the service
+// 4. If malicious: stop and delete the service, remove the binary
+// 5. For PSEXESVC / random-named services, investigate lateral movement
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_path_markers = dynamic([
+    "\\temp\\", "\\appdata\\", "\\downloads\\", "\\programdata\\",
+    "\\users\\public\\", "\\perflogs\\", "%temp%", "%appdata%"
+]);
+let suspicious_binary_markers = dynamic([
+    "powershell", "-enc", "-encodedcommand", "cmd.exe /c", "cmd /c",
+    "rundll32", "regsvr32", "mshta", "wscript", "cscript", "bitsadmin",
+    "certutil", "IEX", "DownloadString", "FromBase64String", "-w hidden",
+    "-nop", "-noninteractive"
+]);
+let known_bad_service_names = dynamic(["psexesvc", "paexec", "csexec", "remcom"]);
+
+// Method 1: SecurityEvent 7045 / 4697 — service installed
+let svc_security =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID in (7045, 4697)
+    | extend ImagePathLower = tolower(coalesce(column_ifexists("ServiceFileName", ""), ""))
+    | extend SvcNameLower = tolower(coalesce(column_ifexists("ServiceName", ""), ""))
+    | extend
+        InUserPath = ImagePathLower has_any (suspicious_path_markers),
+        HasLolbin = ImagePathLower has_any (suspicious_binary_markers),
+        KnownBad = SvcNameLower in~ (known_bad_service_names)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionSource = strcat("SecurityEvent_", tostring(EventID)),
+        ServiceName = SvcNameLower,
+        ImagePath = ImagePathLower,
+        Account = SubjectUserName,
+        InUserPath, HasLolbin, KnownBad;
+
+// Method 2: DeviceProcessEvents — sc.exe / New-Service creation
+let svc_process =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where (FileName =~ "sc.exe" and ProcessCommandLine has "create")
+        or (FileName in~ ("powershell.exe", "pwsh.exe") and ProcessCommandLine has "New-Service")
+    | extend CmdLower = tolower(ProcessCommandLine)
+    | extend
+        InUserPath = CmdLower has_any (suspicious_path_markers),
+        HasLolbin = CmdLower has_any (suspicious_binary_markers),
+        KnownBad = CmdLower has_any (known_bad_service_names)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionSource = "DeviceProcessEvents",
+        ServiceName = "",
+        ImagePath = CmdLower,
+        Account = AccountName,
+        InUserPath, HasLolbin, KnownBad;
+
+union svc_security, svc_process
+| extend IsSuspicious = InUserPath or HasLolbin or KnownBad
+| extend
+    SuspicionReason = case(
+        KnownBad, "Known lateral-movement / C2 service name",
+        HasLolbin, "Service binary uses script interpreter / LOLBin",
+        InUserPath, "Service binary in user-writable path",
+        "New service installed"
+    ),
+    AlertName = "Suspicious Service Installation",
+    Severity = iff(IsSuspicious, "High", "Medium"),
+    TechniqueId = "T1543.003",
+    TechniqueName = "Create or Modify System Process: Windows Service"
+| extend
+    Description = strcat(
+        "Service installation (", DetectionSource, ") on '", DeviceName,
+        "' by '", Account, "'. ", SuspicionReason, "."
+    )
+| project
+    TimeGenerated, DeviceName, DetectionSource, ServiceName, ImagePath, Account,
+    InUserPath, HasLolbin, KnownBad, IsSuspicious, SuspicionReason,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by IsSuspicious desc, TimeGenerated desc

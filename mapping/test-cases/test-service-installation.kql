@@ -1,0 +1,31 @@
+// === Test Case: Suspicious Service Installation ===
+// Simulates: SecurityEvent 7045 installing a service with a PowerShell -enc
+// ImagePath (malicious) + a PSEXESVC service (lateral movement) + a legit
+// driver service that should be medium.
+// Expected: 2 high-severity alerts (LOLBin path + PsExec), 1 medium (driver).
+// Query expects: SecurityEvent (7045)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    ServiceName: string,
+    ServiceFileName: string,
+    SubjectUserName: string
+)
+[
+    // Malicious: service with encoded PowerShell payload
+    datetime(2025-07-26 17:00:00), 7045, "WS-001", "UpdaterSvc",
+    "powershell.exe -nop -w hidden -enc SQBFAFgAKABOAGUAdwApAA==",
+    "jsmith",
+    // Malicious: PsExec service (lateral movement)
+    datetime(2025-07-26 17:05:00), 7045, "WS-002", "PSEXESVC",
+    "C:\\Windows\\PSEXESVC.exe",
+    "attacker_admin",
+    // Legit-ish: driver service from System32 (medium — no suspicious markers)
+    datetime(2025-07-26 18:00:00), 7045, "DC-01", "NvidiaDriver",
+    "C:\\Windows\\System32\\drivers\\nvlddmkm.sys",
+    "SYSTEM",
+];
+
+TestSecurityEvent

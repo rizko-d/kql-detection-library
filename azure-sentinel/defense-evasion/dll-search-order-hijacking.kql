@@ -1,0 +1,82 @@
+// === MITRE ATT&CK ===
+// Technique: T1574.001 — Hijack Execution Flow: DLL Search Order Hijacking
+// Tactic: Defense Evasion, Persistence, Privilege Escalation
+// Severity: High
+// Data Source: DeviceImageLoadEvents, DeviceFileEvents (Microsoft Defender for Endpoint)
+//
+// Detects: DLL search order hijacking, where an attacker places a malicious DLL
+// with the name of a legitimate one in a directory that Windows searches before
+// the real location — so a trusted signed executable loads the attacker's DLL.
+// Variants include DLL sideloading (dropping a DLL next to a signed EXE) and
+// planting DLLs in user-writable application directories.
+//
+// Key indicators:
+// - A signed/trusted process loading a DLL from a user-writable path
+//   (Temp, AppData, Downloads, user profile) instead of System32
+// - Unsigned DLL loaded by a Microsoft-signed binary
+// - Commonly abused DLL names (version.dll, dbghelp.dll, wininet.dll, etc.)
+//   loaded from non-system directories
+//
+// False Positives:
+// - Portable applications that legitimately ship DLLs alongside the EXE
+// - Developer / debugging tools loading local DLLs
+// - Some legitimate installers staging in Temp
+//
+// Recommended Response:
+// 1. Compare the loaded DLL path with the expected system path
+// 2. Check the DLL's signature status and reputation
+// 3. Identify how the DLL got there (correlate DeviceFileEvents)
+// 4. Isolate host if a signed binary is confirmed loading a malicious DLL
+// 5. Hunt for the same DLL name across other hosts
+// === QUERY ===
+
+let lookback = 1d;
+// DLLs frequently abused for search-order hijacking / sideloading
+let commonly_abused_dlls = dynamic([
+    "version.dll", "dbghelp.dll", "wininet.dll", "winmm.dll", "dwmapi.dll",
+    "profapi.dll", "cryptsp.dll", "secur32.dll", "userenv.dll", "netapi32.dll",
+    "vaultcli.dll", "textinputframework.dll", "edputil.dll", "windowscodecs.dll",
+    "msasn1.dll", "sspicli.dll", "dbgcore.dll", "apphelp.dll"
+]);
+// User-writable / non-system directories a DLL should not normally load from
+let suspicious_dirs = dynamic([
+    "\\temp\\", "\\appdata\\", "\\downloads\\", "\\users\\public\\",
+    "\\programdata\\", "\\desktop\\", "\\documents\\"
+]);
+
+DeviceImageLoadEvents
+| where TimeGenerated > ago(lookback)
+| extend DllNameLower = tolower(FileName)
+| extend FolderLower = tolower(FolderPath)
+| where DllNameLower endswith ".dll"
+// Trigger when a DLL loads from a user-writable path
+| where FolderLower has_any (suspicious_dirs)
+| extend
+    IsCommonlyAbused = DllNameLower in~ (commonly_abused_dlls),
+    LoadedBySigned = InitiatingProcessFileName has_any (dynamic([".exe"]))
+| extend
+    SuspicionReason = case(
+        IsCommonlyAbused, strcat("Commonly-hijacked DLL '", FileName, "' loaded from user-writable path"),
+        "DLL loaded from user-writable path"
+    )
+| project
+    TimeGenerated,
+    DeviceName,
+    LoadedDll = FileName,
+    DllPath = FolderPath,
+    LoadingProcess = InitiatingProcessFileName,
+    LoadingProcessPath = InitiatingProcessFolderPath,
+    LoadingCommandLine = InitiatingProcessCommandLine,
+    Account = InitiatingProcessAccountName,
+    IsCommonlyAbused,
+    SuspicionReason
+| extend
+    AlertName = "DLL Search Order Hijacking",
+    Severity = iff(IsCommonlyAbused, "High", "Medium"),
+    TechniqueId = "T1574.001",
+    TechniqueName = "Hijack Execution Flow: DLL Search Order Hijacking",
+    Description = strcat(
+        "Process '", LoadingProcess, "' loaded DLL '", LoadedDll,
+        "' from '", DllPath, "' on '", DeviceName, "'. ", SuspicionReason, "."
+    )
+| sort by IsCommonlyAbused desc, TimeGenerated desc

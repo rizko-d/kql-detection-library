@@ -1,15 +1,21 @@
 # Changelog
 
 ## v0.2 — 2025-07-26
-### Added — Execution & Defense Evasion (partial, 5 of 10 rules)
+### Added — Execution & Defense Evasion (COMPLETE, 10 of 10 rules)
 - **LSASS Memory Access** (T1003.001) — credential dumping via lsass.exe handle access, ProcDump, comsvcs MiniDump
 - **AMSI Bypass** (T1562.001) — AmsiScanBuffer patching, reflection-based bypass, registry disable
 - **Process Hollowing** (T1055.012) — trusted system binaries running from user-writable paths
 - **Log Clearing** (T1070.001) — Event 1102 + wevtutil/auditpol/Clear-EventLog
 - **Registry Run Key Persistence** (T1547.001) — autostart Run/RunOnce key modifications
+- **WMI Event Subscription Persistence** (T1546.003) — __EventFilter / __FilterToConsumerBinding (Event 5861)
+- **Startup Folder Persistence** (T1547.001) — LNK/script/EXE dropped into Startup folders
+- **DLL Search Order Hijacking** (T1574.001) — commonly-abused DLLs loaded from user-writable paths
+- **BITS Jobs Abuse** (T1197) — bitsadmin download + SetNotifyCmdLine persistence
+- **Service Installation** (T1543.003) — new service creation (7045/4697) with suspicious binaries
 - New `defense-evasion/` rule category
-- Test cases for all 5 new rules
-- Updated MITRE ATT&CK matrix (4 tactics, 10 techniques)
+- Test cases for all 10 new rules
+- Fixed `rule-validator.py` bracket checker: `//` inside string literals (e.g. URLs) no longer misread as comments
+- Updated MITRE ATT&CK matrix (4 tactics, 15 rules across 13 techniques)
 
 ## v0.1 — 2025-07-24
 ### Added

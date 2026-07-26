@@ -1,0 +1,33 @@
+// === Test Case: DLL Search Order Hijacking ===
+// Simulates: a signed EXE loading a commonly-abused DLL (version.dll) from a
+// user-writable path (malicious sideload) + a normal DLL load from a Temp path
+// (lower severity) + a legit System32 load that should NOT fire.
+// Expected: 1 high (version.dll from AppData), 1 medium (other DLL from Temp).
+// Query expects: DeviceImageLoadEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceImageLoadEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    FolderPath: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessFolderPath: string,
+    InitiatingProcessCommandLine: string,
+    InitiatingProcessAccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious: commonly-hijacked version.dll sideloaded from AppData
+    datetime(2025-07-26 13:00:00), "version.dll",
+    "C:\\Users\\jsmith\\AppData\\Local\\Temp\\legitapp\\",
+    "legitapp.exe", "C:\\Users\\jsmith\\AppData\\Local\\Temp\\legitapp\\", "legitapp.exe", "jsmith", "WS-001",
+    // Suspicious: other DLL from Downloads
+    datetime(2025-07-26 13:05:00), "helper.dll",
+    "C:\\Users\\akim\\Downloads\\",
+    "app.exe", "C:\\Users\\akim\\Downloads\\", "app.exe", "akim", "WS-002",
+    // Legit: DLL loaded from System32 (should NOT fire — not in suspicious_dirs)
+    datetime(2025-07-26 14:00:00), "kernel32.dll",
+    "C:\\Windows\\System32\\",
+    "explorer.exe", "C:\\Windows\\", "explorer.exe", "bwilson", "WS-003",
+];
+
+TestDeviceImageLoadEvents
