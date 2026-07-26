@@ -1,4 +1,4 @@
-# MITRE ATT&CK Mapping — KQL Detection Arsenal
+# MITRE ATT&CK Mapping — KQL Detection Library
 # Format: technique-id:
 #   name: Technique name
 #   tactic: Tactic name
@@ -25,6 +25,13 @@ T1003.006:
   rules:
     - "azure-sentinel/credential-access/dcsync-detection.kql"
 
+T1003.001:
+  name: "OS Credential Dumping: LSASS Memory"
+  tactic: "Credential Access"
+  severity: "Critical"
+  rules:
+    - "azure-sentinel/credential-access/lsass-memory-access.kql"
+
 T1059.001:
   name: "Command and Scripting Interpreter: PowerShell"
   tactic: "Execution"
@@ -32,9 +39,37 @@ T1059.001:
   rules:
     - "azure-sentinel/execution/powershell-obfuscation.kql"
 
+T1562.001:
+  name: "Impair Defenses: AMSI Bypass"
+  tactic: "Defense Evasion"
+  severity: "High"
+  rules:
+    - "azure-sentinel/defense-evasion/amsi-bypass.kql"
+
+T1055.012:
+  name: "Process Injection: Process Hollowing"
+  tactic: "Defense Evasion"
+  severity: "High"
+  rules:
+    - "azure-sentinel/defense-evasion/process-hollowing.kql"
+
+T1070.001:
+  name: "Indicator Removal: Clear Windows Event Logs"
+  tactic: "Defense Evasion"
+  severity: "High"
+  rules:
+    - "azure-sentinel/defense-evasion/log-clearing.kql"
+
 T1053.005:
   name: "Scheduled Task / Job"
   tactic: "Persistence"
   severity: "Medium"
   rules:
     - "azure-sentinel/persistence/scheduled-task-creation.kql"
+
+T1547.001:
+  name: "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder"
+  tactic: "Persistence"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/persistence/registry-run-key.kql"

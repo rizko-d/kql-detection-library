@@ -1,0 +1,34 @@
+// === Test Case: Windows Event Log Cleared Detection ===
+// Simulates: Event 1102 (Security log cleared) + wevtutil cl command,
+// plus a benign wevtutil query (qe) that should NOT fire.
+// Expected: 2 alerts (1102 native event + wevtutil cl).
+// Query expects: SecurityEvent (1102) and DeviceProcessEvents tables
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    SubjectUserName: string
+)
+[
+    // Malicious: Security audit log cleared
+    datetime(2025-07-24 16:00:00), 1102, "DC-01", "attacker_admin",
+];
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    DeviceName: string,
+    AccountName: string
+)
+[
+    // Malicious: wevtutil clearing the System log
+    datetime(2025-07-24 16:05:00), "wevtutil.exe", "wevtutil.exe cl System", "WS-001", "jsmith",
+    // Benign: wevtutil querying events (should NOT fire — no clear verb)
+    datetime(2025-07-24 17:00:00), "wevtutil.exe", "wevtutil.exe qe Security /c:10", "WS-002", "analyst",
+];
+
+// Test both: TestSecurityEvent (1102) and TestDeviceProcessEvents (wevtutil cl)
+TestSecurityEvent
+| project TimeGenerated, Source = "SecurityEvent", Detail = strcat("EventID ", EventID, " by ", SubjectUserName)

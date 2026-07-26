@@ -1,0 +1,81 @@
+// === MITRE ATT&CK ===
+// Technique: T1070.001 — Indicator Removal: Clear Windows Event Logs
+// Tactic: Defense Evasion
+// Severity: High
+// Data Source: SecurityEvent (1102), Event (104), DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Clearing or deletion of Windows event logs — a common
+// anti-forensic action attackers perform to destroy evidence of their
+// activity. Includes the dedicated "audit log was cleared" events as
+// well as command-line tooling (wevtutil, Clear-EventLog, PowerShell,
+// auditpol) used to wipe logs.
+//
+// Key indicators:
+// - Event ID 1102 in the Security log (audit log cleared)
+// - Event ID 104 in the System log (event log cleared)
+// - wevtutil.exe cl / clear-log
+// - PowerShell Clear-EventLog / Remove-EventLog / wevtutil
+// - auditpol /clear or /remove
+//
+// False Positives:
+// - Legitimate log rotation / archival by administrators
+// - Backup software that clears logs after export
+// - Scripted maintenance during scheduled windows
+//
+// Recommended Response:
+// 1. Identify the account and process that cleared the log
+// 2. Correlate with activity immediately BEFORE the clear (attacker cleanup)
+// 3. Check if the account is authorized for log management
+// 4. Recover logs from a SIEM / forwarder — the local copy is gone
+// 5. Treat as potential active intrusion; expand the investigation window
+// === QUERY ===
+
+let lookback = 1d;
+let log_clear_tools = dynamic(["wevtutil.exe", "powershell.exe", "pwsh.exe", "auditpol.exe", "wmic.exe"]);
+let log_clear_cmdline = dynamic([
+    "clear-log", "cl ", " cl", "Clear-EventLog", "Remove-EventLog",
+    "auditpol /clear", "auditpol /remove", "wevtutil cl", "wevtutil clear-log"
+]);
+
+// Method 1: Native "log cleared" events (most reliable)
+let native_clear =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 1102
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionType = "SecurityLogCleared_1102",
+        Account = SubjectUserName,
+        ProcessName = "",
+        CommandLine = "";
+
+// Method 2: Command-line log clearing tools
+let cmdline_clear =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ (log_clear_tools)
+    | where ProcessCommandLine has_any (log_clear_cmdline)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "CommandLineLogClear",
+        Account = AccountName,
+        ProcessName = FileName,
+        CommandLine = ProcessCommandLine;
+
+union native_clear, cmdline_clear
+| extend
+    AlertName = "Windows Event Log Cleared",
+    Severity = "High",
+    TechniqueId = "T1070.001",
+    TechniqueName = "Indicator Removal: Clear Windows Event Logs",
+    Description = strcat(
+        "Event log clearing detected (", DetectionType, ") on '",
+        DeviceName, "' by account '", Account, "'. ",
+        iff(CommandLine != "", strcat("Command: ", CommandLine), "Native log-cleared event.")
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, Account, ProcessName, CommandLine,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

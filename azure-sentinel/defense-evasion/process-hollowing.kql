@@ -1,0 +1,81 @@
+// === MITRE ATT&CK ===
+// Technique: T1055.012 — Process Injection: Process Hollowing
+// Tactic: Defense Evasion, Privilege Escalation
+// Severity: High
+// Data Source: DeviceProcessEvents, DeviceImageLoadEvents, DeviceEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Process hollowing, where an attacker creates a legitimate process
+// in a suspended state, unmaps (hollows) its original code, writes malicious
+// code into the memory, and resumes it — so a trusted binary name (svchost,
+// explorer, notepad) actually runs attacker code.
+//
+// Key indicators:
+// - A trusted system binary spawned from an unusual parent / user path
+// - Process created suspended then memory written (SetThreadContext / ResumeThread)
+// - Image path mismatch: process name is a system binary but runs from
+//   a non-system directory (Temp, AppData, Downloads)
+// - Signed binary executing from a user-writable location
+//
+// False Positives:
+// - Some installers / packers legitimately create suspended processes
+// - Debuggers and profilers (Visual Studio, WinDbg)
+//
+// Recommended Response:
+// 1. Compare the FolderPath against the expected system path for that binary
+// 2. Inspect the parent process — was a trusted binary spawned by Office / a script?
+// 3. Pull the memory image if EDR supports it
+// 4. Isolate host and hunt for the injecting process
+// === QUERY ===
+
+let lookback = 1d;
+// Trusted binaries that should only run from System32 / SysWOW64
+let system_binaries = dynamic([
+    "svchost.exe", "explorer.exe", "notepad.exe", "rundll32.exe",
+    "regsvr32.exe", "dllhost.exe", "werfault.exe", "csrss.exe",
+    "lsass.exe", "services.exe", "smss.exe", "wininit.exe",
+    "winlogon.exe", "conhost.exe", "RuntimeBroker.exe"
+]);
+// Legitimate directories these binaries run from
+let legit_paths = dynamic([
+    "c:\\windows\\system32\\",
+    "c:\\windows\\syswow64\\",
+    "c:\\windows\\winsxs\\",
+    "c:\\windows\\explorer.exe"
+]);
+
+DeviceProcessEvents
+| where TimeGenerated > ago(lookback)
+| where FileName in~ (system_binaries)
+| extend FolderPathLower = tolower(FolderPath)
+// Flag when a system binary runs from a NON-system path (hollowing / masquerade)
+| where not (FolderPathLower has_any (legit_paths))
+| extend
+    SuspicionReason = case(
+        FolderPathLower has_any (dynamic(["\\temp\\", "\\appdata\\", "\\downloads\\", "\\users\\public\\"])),
+            "System binary running from user-writable path",
+        FolderPathLower !startswith "c:\\windows\\",
+            "System binary running outside Windows directory",
+        "System binary from unexpected location"
+    )
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    ProcessCommandLine,
+    AccountName,
+    ParentProcess = InitiatingProcessFileName,
+    ParentPath = InitiatingProcessFolderPath,
+    ParentCommandLine = InitiatingProcessCommandLine,
+    SuspicionReason
+| extend
+    AlertName = "Process Hollowing / Masquerading",
+    Severity = "High",
+    TechniqueId = "T1055.012",
+    TechniqueName = "Process Injection: Process Hollowing",
+    Description = strcat(
+        "Trusted binary '", FileName, "' executed from unexpected path '",
+        FolderPath, "' on '", DeviceName, "'. ", SuspicionReason,
+        ". Parent: '", ParentProcess, "'."
+    )
+| sort by TimeGenerated desc

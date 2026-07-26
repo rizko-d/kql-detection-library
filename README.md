@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 5 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
-| **Tactics Covered** | 3 of 14 |
-| **Techniques Covered** | 5 of ~200 |
+| **Total Rules** | 10 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Tactics Covered** | 4 of 14 |
+| **Techniques Covered** | 10 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -34,6 +34,7 @@
 | [Brute Force RDP](azure-sentinel/credential-access/brute-force-rdp.kql) | T1110 | High | SigninLogs, AADNonInteractiveUserSignInLogs |
 | [Kerberoasting Detection](azure-sentinel/credential-access/kerberoasting-detection.kql) | T1558.003 | High | SecurityEvent, IdentityLogonEvents |
 | [DCSync Detection](azure-sentinel/credential-access/dcsync-detection.kql) | T1003.006 | Critical | DirectoryServiceAccess, BehaviorAnalytics |
+| [LSASS Memory Access](azure-sentinel/credential-access/lsass-memory-access.kql) | T1003.001 | Critical | DeviceEvents, SecurityEvent (4663/4656) |
 
 ### Execution
 
@@ -41,11 +42,20 @@
 |---|---|---|---|
 | [PowerShell Obfuscation](azure-sentinel/execution/powershell-obfuscation.kql) | T1059.001 | Medium | DeviceProcessEvents (MDE) |
 
+### Defense Evasion
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [AMSI Bypass](azure-sentinel/defense-evasion/amsi-bypass.kql) | T1562.001 | High | DeviceProcessEvents, DeviceRegistryEvents |
+| [Process Hollowing](azure-sentinel/defense-evasion/process-hollowing.kql) | T1055.012 | High | DeviceProcessEvents (MDE) |
+| [Log Clearing](azure-sentinel/defense-evasion/log-clearing.kql) | T1070.001 | High | SecurityEvent (1102), DeviceProcessEvents |
+
 ### Persistence
 
 | Rule | Technique | Severity | Data Source |
 |---|---|---|---|
 | [Scheduled Task Creation](azure-sentinel/persistence/scheduled-task-creation.kql) | T1053.005 | Medium | SecurityEvent, DeviceEvents |
+| [Registry Run Key](azure-sentinel/persistence/registry-run-key.kql) | T1547.001 | Medium/High | DeviceRegistryEvents (MDE) |
 
 ## Rule Format
 
@@ -90,11 +100,11 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] MITRE ATT&CK mapping
 
 ### v0.2 — Execution & Defense Evasion (+10 rules)
-- [ ] **LSASS Access / Mimikatz Detection** (T1003.001) — ProcessAccess via lsass.exe, Event 4663
-- [ ] **AMSI Bypass Detection** (T1562.001) — AmsiScanBuffer patching, registry disable
-- [ ] **Process Hollowing Detection** (T1055.012) — Unbacked memory + suspended thread in trusted binaries
-- [ ] **Log Clearing Detection** (T1070.001) — Event 1102 (Security log cleared), wevtutil /auditpol
-- [ ] **Registry Run Key Persistence** (T1547.001) — CurrentVersion\Run modifications (Event 4657)
+- [x] **LSASS Access / Mimikatz Detection** (T1003.001) — ProcessAccess via lsass.exe, Event 4663
+- [x] **AMSI Bypass Detection** (T1562.001) — AmsiScanBuffer patching, registry disable
+- [x] **Process Hollowing Detection** (T1055.012) — Unbacked memory + suspended thread in trusted binaries
+- [x] **Log Clearing Detection** (T1070.001) — Event 1102 (Security log cleared), wevtutil /auditpol
+- [x] **Registry Run Key Persistence** (T1547.001) — CurrentVersion\Run modifications (Event 4657)
 - [ ] **WMI Event Subscription Persistence** (T1546.003) — \_\_EventFilter / \_\_FilterToConsumerBinding (Event 5861)
 - [ ] **Startup Folder Persistence** (T1547.001) — LNK creation in StartUp folders
 - [ ] **DLL Search Order Hijacking** (T1574.001) — DLL loads from user-writable paths

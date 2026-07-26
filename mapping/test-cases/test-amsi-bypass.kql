@@ -1,0 +1,33 @@
+// === Test Case: AMSI Bypass Detection ===
+// Simulates: 2 AMSI bypass attempts (reflection patching + AmsiScanBuffer)
+// and 1 clean PowerShell command that should NOT fire.
+// Expected: 2 alerts from command-line pattern detection.
+// Query expects: DeviceProcessEvents table (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    DeviceName: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessCommandLine: string
+)
+[
+    // Malicious: classic reflection-based AMSI bypass
+    datetime(2025-07-24 12:00:00), "powershell.exe",
+    'powershell.exe -c "[Ref].Assembly.GetType(''System.Management.Automation.AmsiUtils'').GetField(''amsiInitFailed'',''NonPublic,Static'').SetValue($null,$true)"',
+    "WS-001", "jsmith", "cmd.exe", "cmd.exe /c powershell",
+
+    // Malicious: AmsiScanBuffer patching via VirtualProtect
+    datetime(2025-07-24 12:05:00), "powershell.exe",
+    'powershell.exe -enc aQBlAHgAIAAoAEEAbQBzAGkAUwBjAGEAbgBCAHUAZgBmAGUAcgApADsAVgBpAHIAdAB1AGEAbABQAHIAbwB0AGUAYwB0',
+    "WS-002", "akim", "explorer.exe", "explorer.exe",
+
+    // Clean: normal PowerShell (should NOT fire)
+    datetime(2025-07-24 13:00:00), "powershell.exe",
+    'powershell.exe -File "C:\\Scripts\\backup.ps1"',
+    "WS-003", "bwilson", "explorer.exe", "explorer.exe",
+];
+
+TestDeviceProcessEvents

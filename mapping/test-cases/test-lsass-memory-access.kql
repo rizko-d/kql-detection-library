@@ -1,0 +1,28 @@
+// === Test Case: LSASS Memory Access Detection ===
+// Simulates: procdump.exe and rundll32 (comsvcs MiniDump) accessing lsass.exe,
+// plus one legitimate EDR access (MsMpEng.exe) that should NOT fire.
+// Expected: 2 alerts (procdump + rundll32), MsMpEng excluded.
+// Query expects: DeviceEvents table (Microsoft Defender for Endpoint)
+
+let TestDeviceEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    FileName: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessFolderPath: string,
+    InitiatingProcessCommandLine: string,
+    InitiatingProcessAccountName: string,
+    InitiatingProcessParentFileName: string,
+    DeviceName: string,
+    AdditionalFields: string
+)
+[
+    // Malicious: ProcDump dumping LSASS
+    datetime(2025-07-24 10:00:00), "OpenProcessApiCall", "lsass.exe", "procdump.exe", "C:\\Users\\jsmith\\Downloads\\", "procdump.exe -ma lsass.exe out.dmp", "jsmith", "cmd.exe", "WS-001", "lsass",
+    // Malicious: comsvcs.dll MiniDump via rundll32
+    datetime(2025-07-24 10:05:00), "ReadProcessMemoryApiCall", "lsass.exe", "rundll32.exe", "C:\\Windows\\System32\\", "rundll32.exe C:\\Windows\\System32\\comsvcs.dll MiniDump 624 C:\\temp\\lsass.dmp full", "akim", "powershell.exe", "WS-002", "lsass",
+    // Legitimate: Defender accessing LSASS (should NOT fire — in known_edr list)
+    datetime(2025-07-24 11:00:00), "OpenProcessApiCall", "lsass.exe", "MsMpEng.exe", "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\", "MsMpEng.exe", "SYSTEM", "services.exe", "WS-003", "lsass",
+];
+
+TestDeviceEvents

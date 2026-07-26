@@ -1,0 +1,98 @@
+// === MITRE ATT&CK ===
+// Technique: T1562.001 — Impair Defenses: Disable or Modify Tools (AMSI Bypass)
+// Tactic: Defense Evasion
+// Severity: High
+// Data Source: DeviceProcessEvents, DeviceEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Attempts to bypass the Antimalware Scan Interface (AMSI), which
+// PowerShell, VBScript, and .NET use to submit content to AV for scanning.
+// Attackers patch amsi.dll in memory (AmsiScanBuffer / AmsiInitialize),
+// force an AMSI init failure, or set registry keys to neuter AMSI so that
+// malicious scripts run without being inspected.
+//
+// Key indicators:
+// - Command lines referencing AmsiScanBuffer, AmsiInitialize, amsiInitFailed
+// - Reflection-based patching: [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')
+// - Base64/obfuscated strings that decode to "amsi" markers
+// - Registry writes to AMSI provider keys (CLSID unregister)
+//
+// False Positives:
+// - Security researchers / red team tooling in authorized test environments
+// - AV product updates that legitimately touch AMSI providers
+//
+// Recommended Response:
+// 1. Review the full command line and decode any Base64
+// 2. Identify the parent process (Office macro? remote shell?)
+// 3. Correlate with subsequent process creation / network activity
+// 4. Isolate host if AMSI bypass is followed by payload execution
+// 5. Ensure Script Block Logging (4104) and PowerShell v5+ are enforced
+// === QUERY ===
+
+let lookback = 1d;
+let amsi_patterns = dynamic([
+    "AmsiScanBuffer",
+    "AmsiInitialize",
+    "amsiInitFailed",
+    "AmsiUtils",
+    "System.Management.Automation.AmsiUtils",
+    "amsiContext",
+    "[Ref].Assembly.GetType",
+    "amsi.dll",
+    "VirtualProtect",
+    "0x80070057",           // AMSI init failure HRESULT often forced
+    "AmsiScanString"
+]);
+let amsi_registry_paths = dynamic([
+    "\\Software\\Microsoft\\AMSI\\Providers",
+    "\\Microsoft\\Windows Script\\Settings\\AmsiEnable"
+]);
+
+// Method 1: Process command lines with AMSI bypass markers
+let amsi_proc =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where ProcessCommandLine has_any (amsi_patterns)
+    | where ProcessCommandLine has_any ("amsi", "Amsi", "AMSI", "VirtualProtect", "[Ref]")
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "CommandLinePattern",
+        FileName,
+        ProcessCommandLine,
+        AccountName,
+        ParentProcess = InitiatingProcessFileName,
+        ParentCommandLine = InitiatingProcessCommandLine;
+
+// Method 2: Registry modifications disabling AMSI
+let amsi_registry =
+    DeviceRegistryEvents
+    | where TimeGenerated > ago(lookback)
+    | where ActionType in ("RegistryValueSet", "RegistryKeyDeleted", "RegistryValueDeleted")
+    | where RegistryKey has_any (amsi_registry_paths)
+        or (RegistryKey has "AmsiEnable" and RegistryValueData == "0")
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "RegistryDisable",
+        FileName = InitiatingProcessFileName,
+        ProcessCommandLine = InitiatingProcessCommandLine,
+        AccountName = InitiatingProcessAccountName,
+        ParentProcess = InitiatingProcessParentFileName,
+        ParentCommandLine = "";
+
+union amsi_proc, amsi_registry
+| extend
+    AlertName = "AMSI Bypass Attempt",
+    Severity = "High",
+    TechniqueId = "T1562.001",
+    TechniqueName = "Impair Defenses: AMSI Bypass",
+    Description = strcat(
+        "Possible AMSI bypass (", DetectionType, ") detected on '",
+        DeviceName, "' by process '", FileName, "' running as '",
+        AccountName, "'."
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, FileName, ProcessCommandLine,
+    AccountName, ParentProcess, ParentCommandLine,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

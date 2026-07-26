@@ -1,0 +1,27 @@
+// === Test Case: Process Hollowing / Masquerading Detection ===
+// Simulates: svchost.exe and explorer.exe running from user-writable paths
+// (hollowing indicator), plus a legit svchost from System32 that should NOT fire.
+// Expected: 2 alerts (svchost from Temp, explorer from AppData).
+// Query expects: DeviceProcessEvents table (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    FolderPath: string,
+    ProcessCommandLine: string,
+    DeviceName: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    InitiatingProcessFolderPath: string,
+    InitiatingProcessCommandLine: string
+)
+[
+    // Malicious: svchost.exe running from Temp (hollowing / masquerade)
+    datetime(2025-07-24 14:00:00), "svchost.exe", "C:\\Windows\\Temp\\svchost.exe", "svchost.exe", "WS-001", "jsmith", "malware.exe", "C:\\Users\\jsmith\\Downloads\\", "malware.exe",
+    // Malicious: explorer.exe from AppData
+    datetime(2025-07-24 14:05:00), "explorer.exe", "C:\\Users\\akim\\AppData\\Local\\Temp\\explorer.exe", "explorer.exe", "WS-002", "akim", "winword.exe", "C:\\Program Files\\Microsoft Office\\", "winword.exe /n",
+    // Legitimate: svchost from System32 (should NOT fire)
+    datetime(2025-07-24 15:00:00), "svchost.exe", "C:\\Windows\\System32\\svchost.exe", "svchost.exe -k netsvcs", "WS-003", "SYSTEM", "services.exe", "C:\\Windows\\System32\\", "services.exe",
+];
+
+TestDeviceProcessEvents

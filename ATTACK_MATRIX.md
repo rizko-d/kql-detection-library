@@ -1,6 +1,6 @@
 # MITRE ATT&CK Coverage Matrix
 
-**Last Updated:** 2025-07-24 | **Current Rules:** 5 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
+**Last Updated:** 2025-07-26 | **Current Rules:** 10 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
 
 ## Legend
 
@@ -43,7 +43,7 @@
 | Technique | ID | Rule | Status |
 |---|---|---|---|
 | Scheduled Task / Job | T1053.005 | [scheduled-task-creation.kql](azure-sentinel/persistence/scheduled-task-creation.kql) | ✅ |
-| Registry Run Keys / Startup Folder | T1547.001 | — | 🟡 v0.2 |
+| Registry Run Keys / Startup Folder | T1547.001 | [registry-run-key.kql](azure-sentinel/persistence/registry-run-key.kql) | ✅ |
 | WMI Event Subscription | T1546.003 | — | 🟡 v0.2 |
 | DLL Search Order Hijacking | T1574.001 | — | 🟡 v0.2 |
 | BITS Jobs | T1197 | — | 🟡 v0.2 |
@@ -60,9 +60,9 @@
 
 | Technique | ID | Rule | Status |
 |---|---|---|---|
-| Impair Defenses: AMSI Bypass | T1562.001 | — | 🟡 v0.2 |
-| Process Hollowing | T1055.012 | — | 🟡 v0.2 |
-| Indicator Removal: Log Clearing | T1070.001 | — | 🟡 v0.2 |
+| Impair Defenses: AMSI Bypass | T1562.001 | [amsi-bypass.kql](azure-sentinel/defense-evasion/amsi-bypass.kql) | ✅ |
+| Process Hollowing | T1055.012 | [process-hollowing.kql](azure-sentinel/defense-evasion/process-hollowing.kql) | ✅ |
+| Indicator Removal: Log Clearing | T1070.001 | [log-clearing.kql](azure-sentinel/defense-evasion/log-clearing.kql) | ✅ |
 | Valid Accounts: Cloud Accounts | T1078.004 | — | 🟡 v0.5 |
 | Service Installation (Masquerading) | T1543.003 | — | 🟡 v0.2 |
 
@@ -73,7 +73,7 @@
 | Brute Force | T1110 | [brute-force-rdp.kql](azure-sentinel/credential-access/brute-force-rdp.kql) | ✅ |
 | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | [kerberoasting-detection.kql](azure-sentinel/credential-access/kerberoasting-detection.kql) | ✅ |
 | OS Credential Dumping: DCSync | T1003.006 | [dcsync-detection.kql](azure-sentinel/credential-access/dcsync-detection.kql) | ✅ |
-| OS Credential Dumping: LSASS | T1003.001 | — | 🟡 v0.2 |
+| OS Credential Dumping: LSASS | T1003.001 | [lsass-memory-access.kql](azure-sentinel/credential-access/lsass-memory-access.kql) | ✅ |
 | Steal or Forge Kerberos Tickets: Golden Ticket | T1558.001 | — | 🟡 v0.6 |
 | Unsecured Credentials: Key Vault | T1552.005 | — | 🟡 v0.5 |
 
@@ -128,7 +128,7 @@
 
 ---
 
-**Tactics covered (current):** 3 / 14
-**Techniques covered (current):** 5  
+**Tactics covered (current):** 4 / 14
+**Techniques covered (current):** 10  
 **Techniques planned (roadmap):** ~45+  
 **Rule count target:** ~70 across all versions

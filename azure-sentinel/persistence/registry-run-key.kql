@@ -1,0 +1,87 @@
+// === MITRE ATT&CK ===
+// Technique: T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
+// Tactic: Persistence, Privilege Escalation
+// Severity: Medium
+// Data Source: DeviceRegistryEvents (Microsoft Defender for Endpoint), SecurityEvent (4657)
+//
+// Detects: Creation or modification of registry Run / RunOnce keys used to
+// automatically execute a program at user logon or system boot — one of the
+// most common persistence mechanisms. Flags entries pointing to executables
+// in user-writable / suspicious paths or with obfuscated command lines.
+//
+// Covered keys:
+// - HKLM/HKCU \Software\Microsoft\Windows\CurrentVersion\Run
+// - ...\RunOnce, ...\RunServices, ...\RunServicesOnce
+// - ...\Policies\Explorer\Run
+// - Winlogon Shell / Userinit modifications
+//
+// False Positives:
+// - Legitimate software adding auto-start entries during install (updaters)
+// - Enterprise management tools (SCCM, GPO logon scripts)
+// - OEM / driver utilities
+//
+// Recommended Response:
+// 1. Inspect the registry value data — where does the payload point?
+// 2. Check the initiating process — installer, script host, or Office?
+// 3. Verify the executable's signature and path reputation
+// 4. If malicious: remove the key, delete the binary, hunt for the dropper
+// 5. Check other autostart locations (Scheduled Tasks, Services, WMI)
+// === QUERY ===
+
+let lookback = 1d;
+let run_key_paths = dynamic([
+    "\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+    "\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServices",
+    "\\Software\\Microsoft\\Windows\\CurrentVersion\\RunServicesOnce",
+    "\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\Run",
+    "\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Shell",
+    "\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Userinit"
+]);
+let suspicious_payload_markers = dynamic([
+    "\\Temp\\", "\\AppData\\", "\\Downloads\\", "\\ProgramData\\",
+    "\\Users\\Public\\", "powershell", "cmd.exe /c", "mshta",
+    "rundll32", "regsvr32", "wscript", "cscript", "-enc", "-EncodedCommand",
+    "IEX", "DownloadString", "bitsadmin", "certutil"
+]);
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+| where RegistryKey has_any (run_key_paths)
+| extend PayloadData = tolower(RegistryValueData)
+| extend
+    IsSuspicious = PayloadData has_any (suspicious_payload_markers),
+    SuspicionReason = case(
+        PayloadData has_any (dynamic(["\\temp\\", "\\appdata\\", "\\downloads\\", "\\users\\public\\", "\\programdata\\"])),
+            "Payload in user-writable path",
+        PayloadData has_any (dynamic(["powershell", "-enc", "-encodedcommand", "iex", "downloadstring"])),
+            "Script interpreter / download cradle in autostart",
+        PayloadData has_any (dynamic(["mshta", "rundll32", "regsvr32", "wscript", "cscript", "bitsadmin", "certutil"])),
+            "LOLBin in autostart value",
+        "Autostart entry created/modified"
+    )
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    Account = InitiatingProcessAccountName,
+    InitiatingProcess = InitiatingProcessFileName,
+    InitiatingCommandLine = InitiatingProcessCommandLine,
+    ParentProcess = InitiatingProcessParentFileName,
+    IsSuspicious,
+    SuspicionReason
+| extend
+    AlertName = "Registry Run Key Persistence",
+    Severity = iff(IsSuspicious, "High", "Medium"),
+    TechniqueId = "T1547.001",
+    TechniqueName = "Boot or Logon Autostart Execution: Registry Run Keys",
+    Description = strcat(
+        "Autostart registry value '", RegistryValueName, "' set on '",
+        DeviceName, "' by '", InitiatingProcess, "' (", Account, "). ",
+        SuspicionReason, ". Payload: ", RegistryValueData
+    )
+| sort by IsSuspicious desc, TimeGenerated desc

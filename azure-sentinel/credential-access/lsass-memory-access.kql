@@ -1,0 +1,96 @@
+// === MITRE ATT&CK ===
+// Technique: T1003.001 — OS Credential Dumping: LSASS Memory
+// Tactic: Credential Access
+// Severity: Critical
+// Data Source: DeviceProcessEvents, DeviceEvents (Microsoft Defender for Endpoint), SecurityEvent (4663, 4656)
+//
+// Detects: Suspicious access to the LSASS process (lsass.exe) memory, the
+// hallmark of credential dumping tools like Mimikatz, ProcDump, comsvcs.dll
+// MiniDump, and Task Manager dump abuse. Attackers read LSASS memory to
+// extract plaintext passwords, NTLM hashes, and Kerberos tickets.
+//
+// Key indicators:
+// - Process opening a handle to lsass.exe with dangerous access rights
+//   (0x1010 / 0x1410 / 0x1438 — PROCESS_VM_READ + PROCESS_QUERY_INFORMATION)
+// - Known dump tooling: procdump.exe, comsvcs.dll MiniDump, rundll32 abuse
+// - Non-system process reading LSASS from a user-writable path
+//
+// False Positives:
+// - Legitimate EDR / AV agents (CrowdStrike, Defender, Carbon Black)
+// - Backup / performance monitoring tools that query process info
+// - Windows Error Reporting (WerFault.exe) creating crash dumps
+//
+// Recommended Response:
+// 1. CRITICAL — isolate the host immediately
+// 2. Identify the accessing process and its parent chain
+// 3. Assume all credentials on the host are compromised
+// 4. Force password reset for every account that logged into the host
+// 5. Hunt for lateral movement using the dumped credentials
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_access_rights = dynamic(["0x1010", "0x1410", "0x1438", "0x143a", "0x1fffff"]);
+let dump_tools = dynamic([
+    "procdump.exe", "procdump64.exe", "comsvcs.dll", "rundll32.exe",
+    "taskmgr.exe", "sqldumper.exe", "werfault.exe", "createdump.exe"
+]);
+let known_edr = dynamic([
+    "MsMpEng.exe", "MsSense.exe", "csfalconservice.exe", "cb.exe",
+    "SentinelAgent.exe", "xagt.exe", "CylanceSvc.exe"
+]);
+
+// Method 1: DeviceEvents — LSASS process access (MDE)
+let lsass_access =
+    DeviceEvents
+    | where TimeGenerated > ago(lookback)
+    | where ActionType in ("OpenProcessApiCall", "ReadProcessMemoryApiCall")
+    | where FileName =~ "lsass.exe" or AdditionalFields has "lsass"
+    | where InitiatingProcessFileName !in~ (known_edr)
+    | project
+        TimeGenerated,
+        DeviceName,
+        ActionType,
+        AccessingProcess = InitiatingProcessFileName,
+        AccessingProcessPath = InitiatingProcessFolderPath,
+        AccessingCommandLine = InitiatingProcessCommandLine,
+        AccountName = InitiatingProcessAccountName,
+        ParentProcess = InitiatingProcessParentFileName;
+
+// Method 2: SecurityEvent — Handle to LSASS with dangerous access (4663/4656)
+let lsass_handle =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID in (4656, 4663)
+    | where ObjectName has "lsass.exe"
+    | where AccessMask in~ (suspicious_access_rights)
+    | where ProcessName !has_any (known_edr)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        ActionType = "HandleToLSASS",
+        AccessingProcess = tostring(split(ProcessName, "\\")[-1]),
+        AccessingProcessPath = ProcessName,
+        AccessingCommandLine = "",
+        AccountName = SubjectUserName,
+        ParentProcess = "";
+
+union lsass_access, lsass_handle
+| extend
+    IsKnownDumpTool = AccessingProcess in~ (dump_tools),
+    AlertName = "LSASS Access / Credential Dumping",
+    Severity = "Critical",
+    TechniqueId = "T1003.001",
+    TechniqueName = "OS Credential Dumping: LSASS Memory",
+    Description = strcat(
+        "Process '", AccessingProcess, "' accessed LSASS memory on '",
+        DeviceName, "' as '", AccountName, "'. ",
+        iff(AccessingProcess in~ (dump_tools),
+            "This process is a known credential dumping tool.",
+            "Verify this is legitimate EDR/AV activity."
+        )
+    )
+| project
+    TimeGenerated, DeviceName, ActionType, AccessingProcess,
+    AccessingProcessPath, AccessingCommandLine, AccountName, ParentProcess,
+    IsKnownDumpTool, AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc
