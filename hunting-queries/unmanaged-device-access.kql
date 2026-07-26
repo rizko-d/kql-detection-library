@@ -1,0 +1,48 @@
+// === HUNT ===
+// Technique: T1078.004 / T1021 — Valid Accounts: Cloud / Remote Services (Unmanaged Device)
+// Tactic: Initial Access / Defense Evasion
+// Hunt Hypothesis: Access to corporate resources from devices that are not
+//   Intune-enrolled / not compliant may indicate an attacker using stolen
+//   credentials on their own machine, bypassing device-based Conditional Access.
+// Data Source: SigninLogs (DeviceDetail), AADNonInteractiveUserSignInLogs
+// Investigation Steps:
+//   1. Filter successful sign-ins where the device is not compliant / not managed
+//   2. Focus on access to sensitive apps (Exchange, SharePoint, VPN, admin portals)
+//   3. Compare against the user's normal device fingerprint
+//   4. Validate whether BYOD policy legitimately permits this access
+// Pivots:
+//   - Pivot on UserPrincipalName -> their compliant devices (baseline)
+//   - Pivot on IPAddress -> other unmanaged-device access from the same IP
+//   - Correlate with Conditional Access policy evaluation results
+// === QUERY ===
+
+let lookback = 7d;
+let sensitive_apps = dynamic([
+    "Office 365 Exchange Online", "Office 365 SharePoint Online",
+    "Microsoft Azure Management", "Azure Portal", "Microsoft Graph",
+    "VPN", "Azure Active Directory PowerShell"
+]);
+
+SigninLogs
+| where TimeGenerated > ago(lookback)
+| where ResultType == "0"
+| extend
+    DeviceCompliant = tostring(DeviceDetail.isCompliant),
+    DeviceManaged = tostring(DeviceDetail.isManaged),
+    DeviceId = tostring(DeviceDetail.deviceId),
+    DeviceOS = tostring(DeviceDetail.operatingSystem)
+// Unmanaged / non-compliant: no device id, or explicitly not compliant/managed
+| where isempty(DeviceId) or DeviceCompliant !~ "true" or DeviceManaged !~ "true"
+| where AppDisplayName in~ (sensitive_apps)
+| summarize
+    AccessCount = count(),
+    Apps = make_set(AppDisplayName, 20),
+    IPs = make_set(IPAddress, 20),
+    OSes = make_set(DeviceOS, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by UserPrincipalName, DeviceCompliant, DeviceManaged
+| project
+    UserPrincipalName, AccessCount, Apps, IPs, OSes,
+    DeviceCompliant, DeviceManaged, FirstSeen, LastSeen
+| sort by AccessCount desc

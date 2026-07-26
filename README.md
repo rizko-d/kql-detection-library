@@ -6,7 +6,7 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 45 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Total Rules** | 45 detection rules + 10 hunting queries (current) — see [Roadmap](#roadmap) up to ~70 |
 | **Tactics Covered** | 12 of 14 |
 | **Techniques Covered** | 45 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
@@ -122,6 +122,23 @@
 | [Azure Resource Deletion](azure-sentinel/cloud/azure-resource-deletion.kql) | T1485 | High | AzureActivity |
 | [Logic App / Automation Abuse](azure-sentinel/cloud/logic-app-automation-abuse.kql) | T1053.006 | Medium/High | AzureActivity |
 
+## Hunting Queries
+
+Exploratory, analyst-driven queries in [`hunting-queries/`](hunting-queries/). Unlike detection rules (which alert), these support proactive threat hunting and use a hunt-specific header format (Hunt Hypothesis, Investigation Steps, Pivots).
+
+| Query | Technique | Focus | Data Source |
+|---|---|---|---|
+| [User Behavior Baseline](hunting-queries/user-behavior-baseline.kql) | T1078 | Per-user deviation (hours/geo/devices) | SigninLogs |
+| [Unmanaged Device Access](hunting-queries/unmanaged-device-access.kql) | T1078.004 | Non-compliant device → sensitive apps | SigninLogs |
+| [Anomalous Logon Hour](hunting-queries/anomalous-logon-hour.kql) | T1078 | First-ever logon at odd hour | SigninLogs, SecurityEvent |
+| [Cross-Tenant Access Anomalies](hunting-queries/cross-tenant-access-anomalies.kql) | T1078.004 | B2B guest abuse | SigninLogs, AuditLogs |
+| [Service Account Interactive Logon](hunting-queries/service-account-interactive-logon.kql) | T1078 | Svc accounts w/ interactive logon | SecurityEvent (4624) |
+| [Pass-the-Hash Hunting](hunting-queries/pass-the-hash-hunting.kql) | T1550.002 | NTLM type-3 fan-out | SecurityEvent (4624) |
+| [Golden Ticket Hunting](hunting-queries/golden-ticket-hunting.kql) | T1558.001 | TGS without TGT, RC4 tickets | SecurityEvent (4768/4769) |
+| [Mailbox Access Anomalies](hunting-queries/mailbox-access-anomalies.kql) | T1114 | Non-owner mailbox access | OfficeActivity |
+| [Identity Protection Insights](hunting-queries/identity-protection-insights.kql) | T1078 | Aggregated AAD risk detections | AADUserRiskEvents |
+| [Data Staging → Exfil Correlation](hunting-queries/data-staging-exfil-correlation.kql) | T1074 / T1048 | Archive-then-egress chain | DeviceProcessEvents, DeviceNetworkEvents |
+
 ## Rule Format
 
 Every rule follows this structure:
@@ -144,9 +161,10 @@ See `mapping/test-cases/` for sample data + expected detection logic:
 
 ```bash
 python tools/rule-validator.py azure-sentinel/
+python tools/rule-validator.py hunting-queries/
 ```
 
-Each test case simulates the relevant table schema with realistic event data and validates query syntax. The test — not a live Sentinel deployment — catches structural errors and schema mismatches before deployment.
+Each test case simulates the relevant table schema with realistic event data and validates query syntax. The validator supports two file types: detection rules (6 MITRE headers) and hunting queries (6 hunt headers: Hunt Hypothesis / Investigation Steps / Pivots). The test — not a live Sentinel deployment — catches structural errors and schema mismatches before deployment.
 
 ## MITRE ATT&CK Coverage
 
@@ -212,17 +230,18 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **Azure Resource Deletion** (T1485) — Bulk resource group / NSG deletion within minutes
 - [x] **Azure Logic App / Automation Account Abuse** (T1053.006) — Suspicious runbook/job creation
 
-### v0.6 — Hunting & Baseline (+10 queries)
-- [ ] **Threat Hunting Queries Module** — `hunting-queries/` directory
-- [ ] **User Behavior Baseline KQL** — Historical logon hours, geolocation, device count
-- [ ] **Unmanaged Device Access Detection** — Device compliance check + Conditional Access bypass
-- [ ] **Anomalous Logon Hour Analysis** — First-time logon at 3 AM for a given user
-- [ ] **Cross-Tenant Access Anomalies** — B2B guest account enumeration
-- [ ] **Service Account Interactive Logon** — Service accounts should never have interactive sessions
-- [ ] **Pass-the-Hash Hunting** — RC4 NTLM logon across non-DC hosts
-- [ ] **Golden Ticket Hunting** — Kerberos ticket lifetime > 10 hours (Event 4768/4769 anomalies)
-- [ ] **Mailbox Access Anomalies** — Mailbox accessed via EWS/Graph API from unknown IP
-- [ ] **Identity Protection Insights** — Azure AD Identity Protection risk detections aggregated
+### v0.6 — Hunting & Baseline (+10 queries) ✅ COMPLETE
+- [x] **Threat Hunting Queries Module** — `hunting-queries/` directory (hunt-format + validator support)
+- [x] **User Behavior Baseline KQL** — Historical logon hours, geolocation, device count
+- [x] **Unmanaged Device Access Detection** — Device compliance check + Conditional Access bypass
+- [x] **Anomalous Logon Hour Analysis** — First-time logon at 3 AM for a given user
+- [x] **Cross-Tenant Access Anomalies** — B2B guest account enumeration
+- [x] **Service Account Interactive Logon** — Service accounts should never have interactive sessions
+- [x] **Pass-the-Hash Hunting** — RC4 NTLM logon across non-DC hosts
+- [x] **Golden Ticket Hunting** — Kerberos ticket anomalies (Event 4768/4769, TGS without TGT, RC4)
+- [x] **Mailbox Access Anomalies** — Non-owner mailbox access via EWS/Graph API
+- [x] **Identity Protection Insights** — Azure AD Identity Protection risk detections aggregated
+- [x] **Data Staging → Exfil Correlation** — archive creation followed by large egress (bonus)
 
 ### v0.7 — Tooling & CI
 - [ ] **`rule-scaffold.py`** — Generate new rule from template with auto-frontmatter

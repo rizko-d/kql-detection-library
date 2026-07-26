@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 
-# === Required MITRE ATT&CK headers ===
+# === Required MITRE ATT&CK headers (detection rules) ===
 REQUIRED_HEADERS = [
     "Technique:",
     "Tactic:",
@@ -31,7 +31,24 @@ REQUIRED_HEADERS = [
     "Recommended Response:",
 ]
 
+# === Required headers for hunting queries ===
+# Hunting queries are exploratory (analyst-driven), not fire-and-alert rules,
+# so they carry a different metadata contract focused on the hunt workflow.
+REQUIRED_HUNT_HEADERS = [
+    "Technique:",
+    "Tactic:",
+    "Hunt Hypothesis:",
+    "Data Source:",
+    "Investigation Steps:",
+    "Pivots:",
+]
+
 VALID_SEVERITIES = {"High", "Medium", "Low", "Critical", "Informational"}
+
+
+def is_hunt_file(content: str) -> bool:
+    """A hunting query is identified by the // === HUNT === marker (vs === QUERY ===)."""
+    return "// === HUNT ===" in content or "// === HUNT METADATA ===" in content
 
 
 def find_kql_files(root_dir: str) -> list[Path]:
@@ -64,27 +81,36 @@ def check_naming_convention(filepath: Path) -> list[str]:
 
 
 def check_mitre_headers(content: str) -> list[str]:
-    """Check that all required MITRE headers are present."""
+    """Check that all required headers are present.
+
+    Detection rules require the REQUIRED_HEADERS set; hunting queries
+    (marked with // === HUNT ===) require REQUIRED_HUNT_HEADERS instead.
+    """
     errors = []
     lines = content.split("\n")
+    hunt = is_hunt_file(content)
+    required = REQUIRED_HUNT_HEADERS if hunt else REQUIRED_HEADERS
+    label = "HUNT" if hunt else "MITRE"
 
     found_headers = {}
     for line in lines:
         stripped = line.strip()
-        for header in REQUIRED_HEADERS:
+        for header in required:
             if stripped.startswith(f"// {header}"):
                 found_headers[header] = stripped
 
-    for header in REQUIRED_HEADERS:
+    for header in required:
         if header not in found_headers:
-            errors.append(f"  [MITRE] Missing header: {header}")
+            errors.append(f"  [{label}] Missing header: {header}")
 
     return errors
 
 
 def check_severity(content: str) -> list[str]:
-    """Validate severity value."""
+    """Validate severity value. Hunting queries have no Severity (skipped)."""
     errors = []
+    if is_hunt_file(content):
+        return errors
     for line in content.split("\n"):
         stripped = line.strip()
         if stripped.startswith("// Severity:"):

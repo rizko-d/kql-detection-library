@@ -1,0 +1,52 @@
+// === HUNT ===
+// Technique: T1074 / T1048 — Data Staged / Exfiltration Over Alternative Protocol
+// Tactic: Collection / Exfiltration
+// Hunt Hypothesis: Exfiltration is usually preceded by staging — a host that
+//   archives data and then egresses a large volume shortly after is a strong
+//   exfil candidate. Correlating archive creation with subsequent outbound spikes
+//   surfaces the full collect-then-exfil chain that neither signal shows alone.
+// Data Source: DeviceProcessEvents, DeviceNetworkEvents (Microsoft Defender for Endpoint)
+// Investigation Steps:
+//   1. Find archive creation events (rar/7z/zip/Compress-Archive) per host
+//   2. Find large outbound transfers per host in the same window
+//   3. Correlate: hosts that staged AND then egressed within N hours
+//   4. Prioritize password-protected archives followed by egress to rare hosts
+// Pivots:
+//   - Pivot on the host -> the exact archive path and the egress destination
+//   - Pivot on the destination -> reputation and other hosts contacting it
+//   - Correlate with data-staging.kql and unusual-outbound-traffic.kql hits
+// === QUERY ===
+
+let lookback = 1d;
+let correlation_window = 4h;
+let egress_floor = 52428800;    // 50 MB outbound to qualify
+
+// Staging events: archive creation
+let staging = materialize(
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ ("rar.exe", "7z.exe", "7za.exe", "winrar.exe", "zip.exe", "makecab.exe")
+        or (FileName in~ ("powershell.exe", "pwsh.exe") and ProcessCommandLine has "Compress-Archive")
+    | extend HasPassword = tolower(ProcessCommandLine) has_any (dynamic(["-hp", "-p ", "/p", "password"]))
+    | project StageTime = TimeGenerated, DeviceName, StageCmd = ProcessCommandLine, HasPassword
+);
+
+// Egress events: large outbound to public IPs
+let egress = materialize(
+    DeviceNetworkEvents
+    | where TimeGenerated > ago(lookback)
+    | where ActionType == "ConnectionSuccess"
+    | where RemoteIPType == "Public"
+    | summarize SentBytes = sum(tolong(column_ifexists("SentBytes", 0))), EgressTime = max(TimeGenerated)
+        by DeviceName, RemoteIP
+    | where SentBytes >= egress_floor
+);
+
+staging
+| join kind=inner egress on DeviceName
+| where EgressTime between (StageTime .. (StageTime + correlation_window))
+| project
+    DeviceName, StageTime, StageCmd, HasPassword,
+    EgressTime, RemoteIP, SentBytes,
+    MinutesToExfil = datetime_diff('minute', EgressTime, StageTime)
+| sort by HasPassword desc, SentBytes desc

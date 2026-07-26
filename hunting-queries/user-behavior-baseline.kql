@@ -1,0 +1,60 @@
+// === HUNT ===
+// Technique: T1078 — Valid Accounts (baseline deviation)
+// Tactic: Multiple (Discovery / Initial Access support)
+// Hunt Hypothesis: A compromised account will deviate from its established
+//   behavioral baseline — logging on at unusual hours, from new locations,
+//   or from an abnormal number of devices. This hunt surfaces those deviations.
+// Data Source: SigninLogs, AADNonInteractiveUserSignInLogs
+// Investigation Steps:
+//   1. Build a 30-day per-user baseline (typical hours, countries, device count)
+//   2. Compare the last 24h against the baseline
+//   3. Triage users whose recent activity falls outside their normal envelope
+//   4. Prioritize privileged accounts and impossible-travel candidates
+// Pivots:
+//   - Pivot on UserPrincipalName -> recent risky sign-ins (AADUserRiskEvents)
+//   - Pivot on IPAddress -> other users from the same new IP
+//   - Correlate with MFA failures / legacy auth on the same account
+// === QUERY ===
+
+let baseline_window = 30d;
+let recent_window = 1d;
+
+// Per-user 30-day baseline
+let baseline = materialize(
+    SigninLogs
+    | where TimeGenerated between (ago(baseline_window) .. ago(recent_window))
+    | where ResultType == "0"
+    | summarize
+        BaselineHours = make_set(datetime_part("hour", TimeGenerated), 24),
+        BaselineCountries = make_set(tostring(LocationDetails.countryOrRegion), 30),
+        BaselineDeviceCount = dcount(tostring(DeviceDetail.deviceId)),
+        BaselineIPs = dcount(IPAddress)
+        by UserPrincipalName
+);
+
+// Recent activity vs baseline
+SigninLogs
+| where TimeGenerated > ago(recent_window)
+| where ResultType == "0"
+| extend Hour = datetime_part("hour", TimeGenerated),
+         Country = tostring(LocationDetails.countryOrRegion)
+| summarize
+    RecentHours = make_set(Hour, 24),
+    RecentCountries = make_set(Country, 30),
+    RecentDeviceCount = dcount(tostring(DeviceDetail.deviceId)),
+    RecentSignins = count()
+    by UserPrincipalName
+| join kind=inner baseline on UserPrincipalName
+| extend
+    NewCountries = set_difference(RecentCountries, BaselineCountries),
+    NewHours = set_difference(RecentHours, BaselineHours)
+| extend
+    NewCountryCount = array_length(NewCountries),
+    NewHourCount = array_length(NewHours),
+    DeviceCountJump = RecentDeviceCount - BaselineDeviceCount
+| where NewCountryCount > 0 or NewHourCount >= 3 or DeviceCountJump >= 2
+| project
+    UserPrincipalName, RecentSignins, NewCountries, NewCountryCount,
+    NewHours, NewHourCount, RecentDeviceCount, BaselineDeviceCount, DeviceCountJump,
+    BaselineCountries
+| sort by NewCountryCount desc, DeviceCountJump desc

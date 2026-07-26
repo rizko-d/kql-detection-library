@@ -1,0 +1,51 @@
+// === HUNT ===
+// Technique: T1078 / T1110 — Valid Accounts / Brute Force (Identity Protection risk)
+// Tactic: Initial Access / Credential Access
+// Hunt Hypothesis: Azure AD Identity Protection risk detections (anonymous IP,
+//   impossible travel, malware-linked IP, leaked credentials, password spray)
+//   that were NOT auto-remediated represent live risk. Aggregating them per user
+//   surfaces accounts under active attack or already compromised.
+// Data Source: AADUserRiskEvents, AADRiskyUsers, SigninLogs (RiskLevelDuringSignIn)
+// Investigation Steps:
+//   1. Aggregate risk detections per user over the window
+//   2. Prioritize users with multiple distinct risk types or high aggregate risk
+//   3. Cross-reference with successful sign-ins that carried elevated risk
+//   4. Confirm remediation status; escalate un-remediated high-risk users
+// Pivots:
+//   - Pivot on the user -> their risky sign-ins and the source IPs
+//   - Pivot on the risk IP -> other users flagged from the same IP
+//   - Correlate with legacy-auth / MFA-bypass (azure-ad-mfa-bypass.kql)
+// === QUERY ===
+
+let lookback = 7d;
+
+// Risk detections per user
+let risk_events =
+    AADUserRiskEvents
+    | where TimeGenerated > ago(lookback)
+    | summarize
+        RiskDetectionCount = count(),
+        RiskTypes = make_set(RiskEventType, 20),
+        RiskLevels = make_set(RiskLevel, 5),
+        RiskIPs = make_set(IpAddress, 20),
+        FirstSeen = min(TimeGenerated),
+        LastSeen = max(TimeGenerated)
+        by UserPrincipalName;
+
+// Risky successful sign-ins
+let risky_signins =
+    SigninLogs
+    | where TimeGenerated > ago(lookback)
+    | where ResultType == "0"
+    | where RiskLevelDuringSignIn in~ ("high", "medium")
+    | summarize RiskySignInCount = count(), SignInRiskLevels = make_set(RiskLevelDuringSignIn, 5)
+        by UserPrincipalName;
+
+risk_events
+| join kind=leftouter risky_signins on UserPrincipalName
+| extend RiskySignInCount = coalesce(RiskySignInCount, 0)
+| extend DistinctRiskTypes = array_length(RiskTypes)
+| project
+    UserPrincipalName, RiskDetectionCount, DistinctRiskTypes, RiskTypes,
+    RiskLevels, RiskySignInCount, RiskIPs, FirstSeen, LastSeen
+| sort by DistinctRiskTypes desc, RiskDetectionCount desc

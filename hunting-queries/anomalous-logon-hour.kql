@@ -1,0 +1,41 @@
+// === HUNT ===
+// Technique: T1078 — Valid Accounts (Anomalous Logon Hour)
+// Tactic: Initial Access / Persistence
+// Hunt Hypothesis: An account authenticating for the first time at an odd hour
+//   (e.g. 3 AM local) when that user has never logged on in that window before
+//   may indicate credential misuse in a different timezone.
+// Data Source: SigninLogs, SecurityEvent (4624)
+// Investigation Steps:
+//   1. Build each user's historical set of active logon hours (30d)
+//   2. Flag recent logons occurring in an hour the user has never used
+//   3. Emphasize off-hours windows (00:00-05:00) and privileged users
+//   4. Confirm against timezone / travel / shift-work context
+// Pivots:
+//   - Pivot on UserPrincipalName -> geo of the odd-hour logon vs normal geo
+//   - Pivot on IPAddress -> other odd-hour logons from the same source
+//   - Correlate with data access / privilege use right after the logon
+// === QUERY ===
+
+let baseline_window = 30d;
+let recent_window = 1d;
+let off_hours = dynamic([0, 1, 2, 3, 4, 5]);
+
+// Historical logon hours per user
+let hour_baseline = materialize(
+    SigninLogs
+    | where TimeGenerated between (ago(baseline_window) .. ago(recent_window))
+    | where ResultType == "0"
+    | summarize KnownHours = make_set(datetime_part("hour", TimeGenerated), 24) by UserPrincipalName
+);
+
+SigninLogs
+| where TimeGenerated > ago(recent_window)
+| where ResultType == "0"
+| extend Hour = datetime_part("hour", TimeGenerated)
+| join kind=inner hour_baseline on UserPrincipalName
+| where not(set_has_element(KnownHours, Hour))          // never logged in at this hour
+| extend IsOffHours = set_has_element(off_hours, Hour)
+| project
+    TimeGenerated, UserPrincipalName, Hour, IsOffHours, IPAddress,
+    Location = tostring(LocationDetails.countryOrRegion), AppDisplayName, KnownHours
+| sort by IsOffHours desc, TimeGenerated desc

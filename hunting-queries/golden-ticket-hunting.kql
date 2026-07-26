@@ -1,0 +1,52 @@
+// === HUNT ===
+// Technique: T1558.001 — Steal or Forge Kerberos Tickets: Golden Ticket
+// Tactic: Credential Access / Persistence
+// Hunt Hypothesis: Golden Tickets are forged TGTs with attacker-chosen lifetimes
+//   and often malformed fields. Hunting for Kerberos anomalies — TGS requests with
+//   no preceding TGT (AS-REQ), abnormal ticket lifetimes, weak encryption (RC4),
+//   or blank/mismatched account domains — surfaces forged-ticket usage.
+// Data Source: SecurityEvent (4768 AS-REQ, 4769 TGS-REQ, 4770)
+// Investigation Steps:
+//   1. Collect 4769 (TGS) events and join to 4768 (TGT/AS) per account
+//   2. Flag accounts with TGS activity but no corresponding TGT issuance
+//   3. Flag RC4 (0x17) ticket encryption where AES is the norm
+//   4. Investigate blank/foreign domain fields and abnormal ticket lifetimes
+// Pivots:
+//   - Pivot on the account -> hosts where the ticket was used
+//   - Pivot on the source host -> Mimikatz / LSASS access indicators
+//   - Correlate with DCSync (dcsync-detection.kql) — krbtgt hash theft precedes it
+// === QUERY ===
+
+let lookback = 1d;
+
+// TGT issuance (AS-REQ / 4768) per account
+let tgt_events = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4768
+    | project TgtTime = TimeGenerated, Account = TargetUserName, TgtHost = Computer
+);
+
+// TGS requests (4769) — the service ticket usage
+SecurityEvent
+| where TimeGenerated > ago(lookback)
+| where EventID == 4769
+| extend TicketEncryption = tostring(column_ifexists("TicketEncryptionType", ""))
+| extend UsesRC4 = TicketEncryption in ("0x17", "0x18", "23", "24")
+| summarize
+    TgsCount = count(),
+    Services = make_set(ServiceName, 30),
+    RC4Count = countif(UsesRC4),
+    Hosts = make_set(Computer, 30),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Account = TargetUserName
+| join kind=leftouter (
+    tgt_events | summarize TgtCount = count() by Account
+) on Account
+| extend TgtCount = coalesce(TgtCount, 0)
+// Golden-ticket smell: TGS activity without a matching TGT issuance, or heavy RC4
+| where TgtCount == 0 or RC4Count > 0
+| project
+    Account, TgsCount, TgtCount, RC4Count, Services, Hosts, FirstSeen, LastSeen
+| sort by TgsCount desc

@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.6 — 2025-07-26
+### Added — Hunting & Baseline (COMPLETE, 10 hunting queries)
+- New `hunting-queries/` module with a hunt-specific metadata format
+  (Hunt Hypothesis / Investigation Steps / Pivots instead of Severity / Response)
+- **User Behavior Baseline** (T1078) — 30d per-user baseline vs recent deviation
+- **Unmanaged Device Access** (T1078.004) — non-compliant device → sensitive apps
+- **Anomalous Logon Hour** (T1078) — first-ever logon at an odd/off-hours time
+- **Cross-Tenant Access Anomalies** (T1078.004) — B2B guest sign-ins + invitations
+- **Service Account Interactive Logon** (T1078) — svc accounts with type 2/10 logons
+- **Pass-the-Hash Hunting** (T1550.002) — NTLM type-3 fan-out across hosts
+- **Golden Ticket Hunting** (T1558.001) — TGS without TGT, RC4 ticket anomalies
+- **Mailbox Access Anomalies** (T1114) — non-owner mailbox access via EWS/Graph
+- **Identity Protection Insights** (T1078) — aggregated AAD risk detections per user
+- **Data Staging → Exfil Correlation** (T1074/T1048) — archive-then-egress chain
+### Changed
+- `rule-validator.py` extended to support two file types: detection rules
+  (6 MITRE headers) and hunting queries (6 hunt headers, `// === HUNT ===` marker).
+  Backward compatible — all 45 detection rules still validate unchanged.
+
 ## v0.5 — 2025-07-26
 ### Added — Cloud-Specific & Kubernetes (COMPLETE, 10 of 10 rules)
 - **Azure AD MFA Bypass / Legacy Auth** (T1078.004) — legacy protocol sign-ins that evade MFA

@@ -1,0 +1,49 @@
+// === HUNT ===
+// Technique: T1078.004 / T1199 — Valid Accounts: Cloud / Trusted Relationship (Cross-Tenant)
+// Tactic: Initial Access / Persistence
+// Hunt Hypothesis: Excessive B2B guest account activity, new guest invitations,
+//   or guest access to sensitive resources may indicate cross-tenant abuse or a
+//   foothold established through a compromised partner tenant.
+// Data Source: SigninLogs, AuditLogs (Azure AD)
+// Investigation Steps:
+//   1. Enumerate guest (#EXT#) account sign-ins and recent guest invitations
+//   2. Flag guests accessing sensitive apps or with elevated directory roles
+//   3. Review who invited each guest and the invitee's home tenant/domain
+//   4. Validate that each guest relationship is business-approved
+// Pivots:
+//   - Pivot on the guest UPN -> apps and resources they touched
+//   - Pivot on the inviter -> other guests they created
+//   - Correlate guest home domain against known partner allow-list
+// === QUERY ===
+
+let lookback = 7d;
+
+// Guest sign-ins
+let guest_signins =
+    SigninLogs
+    | where TimeGenerated > ago(lookback)
+    | where UserPrincipalName has "#EXT#" or UserType =~ "Guest"
+    | summarize
+        SignInCount = count(),
+        Apps = make_set(AppDisplayName, 20),
+        IPs = make_set(IPAddress, 20),
+        Countries = make_set(tostring(LocationDetails.countryOrRegion), 10)
+        by GuestUPN = UserPrincipalName;
+
+// Recent guest invitations
+let guest_invites =
+    AuditLogs
+    | where TimeGenerated > ago(lookback)
+    | where OperationName has_any ("Invite external user", "Add user", "Redeem external user invitation")
+    | extend
+        InvitedUser = tostring(TargetResources[0].userPrincipalName),
+        Inviter = tostring(parse_json(tostring(InitiatedBy)).user.userPrincipalName)
+    | project InviteTime = TimeGenerated, GuestUPN = InvitedUser, Inviter, OperationName;
+
+guest_signins
+| join kind=leftouter guest_invites on GuestUPN
+| extend HomeDomain = tostring(split(replace_string(GuestUPN, "#EXT#", ""), "_")[1])
+| project
+    GuestUPN, HomeDomain, SignInCount, Apps, IPs, Countries,
+    Inviter, InviteTime, OperationName
+| sort by SignInCount desc

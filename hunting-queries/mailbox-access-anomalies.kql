@@ -1,0 +1,46 @@
+// === HUNT ===
+// Technique: T1114 / T1098.002 — Email Collection / Add Delegate Mailbox Access
+// Tactic: Collection
+// Hunt Hypothesis: An attacker who compromises a mailbox (or grants themselves
+//   delegate rights) will access mail via EWS / Graph / non-Outlook clients, often
+//   from a new IP or as a non-owner. Hunting non-owner mailbox access surfaces BEC
+//   and data theft.
+// Data Source: OfficeActivity (Exchange mailbox audit)
+// Investigation Steps:
+//   1. Collect mailbox access events (MailItemsAccessed, FolderBind, MessageBind)
+//   2. Flag access where the logon user != the mailbox owner (delegate/admin access)
+//   3. Prioritize access via EWS / REST / non-Outlook clients from new IPs
+//   4. Confirm whether the delegate relationship is legitimate
+// Pivots:
+//   - Pivot on the accessing user -> other mailboxes they touched
+//   - Pivot on ClientIP -> other mailbox access / sign-ins from that IP
+//   - Correlate with email-forwarding rules (email-forwarding-exfiltration.kql)
+// === QUERY ===
+
+let lookback = 7d;
+
+OfficeActivity
+| where TimeGenerated > ago(lookback)
+| where OperationName in~ ("MailItemsAccessed", "FolderBind", "MessageBind", "Create", "SendAs", "SendOnBehalf")
+| extend
+    Mailbox = tostring(column_ifexists("MailboxOwnerUPN", "")),
+    LogonUser = tostring(column_ifexists("UserId", "")),
+    ClientIP = tostring(column_ifexists("ClientIP", "")),
+    ClientInfo = tostring(column_ifexists("ClientInfoString", "")),
+    LogonType = tostring(column_ifexists("LogonType", ""))
+// Non-owner access = the accessing user differs from the mailbox owner
+| where isnotempty(Mailbox) and isnotempty(LogonUser) and tolower(Mailbox) != tolower(LogonUser)
+| summarize
+    AccessCount = count(),
+    Operations = make_set(OperationName, 10),
+    ClientIPs = make_set(ClientIP, 20),
+    Clients = make_set(ClientInfo, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Mailbox, LogonUser
+| extend
+    NonOutlookClient = Clients has_any (dynamic(["Exchange Web Services", "REST", "Graph", "eM Client", "Thunderbird", "curl", "python"]))
+| project
+    Mailbox, LogonUser, AccessCount, Operations, NonOutlookClient, ClientIPs,
+    Clients, FirstSeen, LastSeen
+| sort by AccessCount desc

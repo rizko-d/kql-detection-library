@@ -1,0 +1,44 @@
+// === HUNT ===
+// Technique: T1550.002 — Use Alternate Authentication Material: Pass the Hash
+// Tactic: Lateral Movement
+// Hunt Hypothesis: Pass-the-Hash produces NTLM (often RC4) network logons across
+//   hosts that normally use Kerberos. Hunting for NTLM type-3 logons on hosts and
+//   accounts that should be Kerberos-only surfaces PtH activity below alert
+//   thresholds.
+// Data Source: SecurityEvent (4624), DeviceLogonEvents
+// Investigation Steps:
+//   1. Collect NTLM (NtLmSsp) type-3 logons over the window
+//   2. Exclude expected NTLM (legacy apps, workgroup hosts) via an allow-list
+//   3. Rank accounts by breadth of NTLM destinations (fan-out)
+//   4. Investigate accounts that are normally Kerberos-only showing NTLM spread
+// Pivots:
+//   - Pivot on the account -> LSASS access / credential theft on the source
+//   - Pivot on the source IP -> other NTLM logons from that host
+//   - Correlate with the PtH detection rule (pass-the-hash.kql) hits
+// === QUERY ===
+
+let lookback = 7d;
+// Hosts/accounts where NTLM is expected (tune to environment)
+let ntlm_allowlist_accounts = dynamic([]);
+
+SecurityEvent
+| where TimeGenerated > ago(lookback)
+| where EventID == 4624
+| where LogonType == 3
+| where AuthenticationPackageName =~ "NTLM"
+| where LogonProcessName in~ ("NtLmSsp", "seclogo")
+| where TargetUserName !endswith "$"
+| where TargetUserName !in~ ("ANONYMOUS LOGON", "SYSTEM")
+| where not(set_has_element(ntlm_allowlist_accounts, tolower(TargetUserName)))
+| summarize
+    NtlmLogonCount = count(),
+    DestinationHosts = make_set(Computer, 50),
+    DestinationCount = dcount(Computer),
+    SourceIPs = make_set(IpAddress, 30),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by TargetUserName
+| project
+    TargetUserName, NtlmLogonCount, DestinationCount, DestinationHosts,
+    SourceIPs, FirstSeen, LastSeen
+| sort by DestinationCount desc
