@@ -1,0 +1,30 @@
+// === Test Case: Active Directory Account Discovery ===
+// Simulates: a host running SharpHound + net group "Domain Admins" /domain +
+// PowerView Get-NetUser + dsquery (malicious recon burst) + a benign single
+// net user lookup on a separate host.
+// Expected: 1 high alert (offensive tools + high volume) for the recon host.
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious: SharpHound mass collection
+    datetime(2025-07-26 17:00:00), "sharphound.exe", "sharphound.exe -c All --zipfilename loot", "attacker", "WS-001",
+    // Malicious: net group Domain Admins /domain
+    datetime(2025-07-26 17:01:00), "net.exe", "net group \"Domain Admins\" /domain", "attacker", "WS-001",
+    // Malicious: PowerView Get-NetUser
+    datetime(2025-07-26 17:02:00), "powershell.exe", "powershell.exe Get-NetUser -Domain corp.local", "attacker", "WS-001",
+    // Malicious: dsquery enumeration
+    datetime(2025-07-26 17:03:00), "dsquery.exe", "dsquery user -limit 0", "attacker", "WS-001",
+    // Malicious: nltest domain trusts
+    datetime(2025-07-26 17:04:00), "nltest.exe", "nltest /domain_trusts /all_trusts", "attacker", "WS-001",
+    // Benign: single net user lookup on a different host (should stay low/separate)
+    datetime(2025-07-26 18:00:00), "net.exe", "net user jsmith /domain", "helpdesk", "WS-005",
+];
+
+TestDeviceProcessEvents

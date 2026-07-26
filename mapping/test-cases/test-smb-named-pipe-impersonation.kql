@@ -1,0 +1,27 @@
+// === Test Case: SMB Named Pipe Lateral Movement ===
+// Simulates: account accessing svcctl + atsvc + psexesvc pipes over IPC$ across
+// hosts (malicious) + a benign single srvsvc access.
+// Expected: 1 alert (multiple sensitive pipes / tool pipe on IPC$).
+// Query expects: SecurityEvent (5145)
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    ShareName: string,
+    RelativeTargetName: string,
+    SubjectUserName: string,
+    IpAddress: string
+)
+[
+    // Malicious: svcctl pipe (PsExec service control)
+    datetime(2025-07-26 15:00:00), 5145, "SRV-DB01", "\\\\*\\IPC$", "svcctl", "attacker_admin", "10.10.50.20",
+    // Malicious: atsvc pipe (atexec)
+    datetime(2025-07-26 15:01:00), 5145, "SRV-APP01", "\\\\*\\IPC$", "atsvc", "attacker_admin", "10.10.50.20",
+    // Malicious: psexesvc tool pipe
+    datetime(2025-07-26 15:02:00), 5145, "SRV-FILE01", "\\\\*\\IPC$", "psexesvc", "attacker_admin", "10.10.50.20",
+    // Benign: single srvsvc (normal admin) - lower volume, separate account
+    datetime(2025-07-26 16:00:00), 5145, "SRV-DB01", "\\\\*\\IPC$", "srvsvc", "admin", "192.168.1.10",
+];
+
+TestSecurityEvent

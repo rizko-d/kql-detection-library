@@ -1,0 +1,44 @@
+// === Test Case: Remote Service Creation / Lateral Movement ===
+// Simulates: sc.exe \\remotehost create (malicious) + PowerShell New-Service
+// -ComputerName + Impacket-style 7045 with cmd /Q /c output.txt + benign local sc.
+// Expected: 3 alerts (sc remote, PS remote, Impacket service).
+// Query expects: DeviceProcessEvents + SecurityEvent (7045)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: sc.exe creating a service on a remote host
+    datetime(2025-07-26 09:00:00), "sc.exe",
+    "sc.exe \\\\10.10.50.30 create EvilSvc binPath= \"cmd.exe /c powershell -enc SQBFAFgA\"",
+    "attacker_admin", "cmd.exe", "WS-001",
+    // Malicious: PowerShell New-Service remote
+    datetime(2025-07-26 09:05:00), "powershell.exe",
+    "powershell.exe New-Service -Name Updater -BinaryPathName 'cmd /c evil.exe' -ComputerName SRV-DB01",
+    "akim", "explorer.exe", "WS-002",
+    // Benign: local sc query (should NOT fire — no \\\\ remote target)
+    datetime(2025-07-26 10:00:00), "sc.exe", "sc.exe query wuauserv", "admin", "cmd.exe", "WS-003",
+];
+
+let TestSecurityEvent = datatable(
+    TimeGenerated: datetime,
+    EventID: int,
+    Computer: string,
+    ServiceFileName: string,
+    SubjectUserName: string
+)
+[
+    // Malicious: Impacket smbexec-style service install
+    datetime(2025-07-26 09:10:00), 7045, "SRV-DB01",
+    "%COMSPEC% /Q /c echo whoami ^> \\\\127.0.0.1\\ADMIN$\\output.txt > %TEMP%\\execute.bat",
+    "attacker_admin",
+];
+
+union
+  (TestDeviceProcessEvents | project TimeGenerated, Source="DeviceProcessEvents", Detail=ProcessCommandLine),
+  (TestSecurityEvent | project TimeGenerated, Source="SecurityEvent_7045", Detail=ServiceFileName)

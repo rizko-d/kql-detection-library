@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 20 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Total Rules** | 25 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
 | **Tactics Covered** | 6 of 14 |
-| **Techniques Covered** | 20 of ~200 |
+| **Techniques Covered** | 25 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -70,12 +70,17 @@
 | [WMI Execution](azure-sentinel/lateral-movement/wmi-execution.kql) | T1047 | Medium/High | DeviceProcessEvents (MDE) |
 | [PsExec / SMB Execution](azure-sentinel/lateral-movement/psexec-smb-execution.kql) | T1570 | High | SecurityEvent (7045/5145), DeviceProcessEvents |
 | [RDP Lateral Movement](azure-sentinel/lateral-movement/rdp-lateral-movement.kql) | T1021.001 | Medium | SecurityEvent (4624), DeviceLogonEvents |
+| [Remote Service Creation](azure-sentinel/lateral-movement/remote-service-creation.kql) | T1543.003 | High | SecurityEvent (4697/7045), DeviceProcessEvents |
+| [DCOM Lateral Movement](azure-sentinel/lateral-movement/dcom-lateral-movement.kql) | T1021.003 | High | DeviceProcessEvents (MDE) |
+| [WinRM / PowerShell Remoting](azure-sentinel/lateral-movement/winrm-powershell-remoting.kql) | T1021.006 | High | DeviceProcessEvents (MDE) |
+| [SMB Named Pipe Impersonation](azure-sentinel/lateral-movement/smb-named-pipe-impersonation.kql) | T1550.003 | High | SecurityEvent (5145) |
 
 ### Discovery
 
 | Rule | Technique | Severity | Data Source |
 |---|---|---|---|
 | [Network Share Discovery](azure-sentinel/discovery/network-share-discovery.kql) | T1135 | Low/Medium | DeviceProcessEvents (MDE) |
+| [Active Directory Discovery](azure-sentinel/discovery/active-directory-discovery.kql) | T1087.002 | Medium/High | DeviceProcessEvents (MDE) |
 
 ## Rule Format
 
@@ -131,17 +136,17 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **BITS Jobs Persistence** (T1197) — Background Intelligent Transfer Service job creation
 - [x] **Service Installation Detection** (T1543.003) — New service creation (Event 4697) from non-admin
 
-### v0.3 — Lateral Movement & Discovery (+10 rules)
+### v0.3 — Lateral Movement & Discovery (+10 rules) ✅ COMPLETE
 - [x] **Pass-the-Hash Detection** (T1550.002) — NTLM logon type 3 anomalies
-- [ ] **Remote Service Creation** (T1543.003) — sc.exe / PowerShell New-Service from remote
+- [x] **Remote Service Creation** (T1543.003) — sc.exe / PowerShell New-Service from remote
 - [x] **WMI Execution Detection** (T1047) — wmic process call create, Invoke-CimMethod
 - [x] **PsExec / SMB Execution** (T1570) — PSEXESVC service + named pipe \psexecsvc
 - [x] **Network Share Discovery** (T1135) — net view / net share enumeration bursts
-- [ ] **DCOM Lateral Movement** (T1021.003) — MMC20.Application, ShellWindows, Excel DCOM
-- [ ] **WinRM / PowerShell Remoting** (T1021.006) — WinRM service access, PS session creation
+- [x] **DCOM Lateral Movement** (T1021.003) — MMC20.Application, ShellWindows, Excel DCOM
+- [x] **WinRM / PowerShell Remoting** (T1021.006) — WinRM service access, PS session creation
 - [x] **RDP Lateral Movement** (T1021.001) — Successful RDP logon from non-admin workstation
-- [ ] **SMB Named Pipe Impersonation** (T1550.003) — \\pipe\\\* access after SMB session
-- [ ] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
+- [x] **SMB Named Pipe Impersonation** (T1550.003) — \\pipe\\\* access after SMB session
+- [x] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
 
 ### v0.4 — Exfiltration & C2 (+10 rules)
 - [ ] **Unusual Outbound Traffic** (T1048) — Egress volume anomaly from non-web servers

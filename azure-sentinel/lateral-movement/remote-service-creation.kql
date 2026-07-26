@@ -1,0 +1,98 @@
+// === MITRE ATT&CK ===
+// Technique: T1543.003 — Create or Modify System Process: Windows Service (Remote)
+// Tactic: Lateral Movement, Persistence, Privilege Escalation
+// Severity: High
+// Data Source: SecurityEvent (4697, 7045, 5145), DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Remote creation of Windows services for lateral movement — the
+// technique behind sc.exe \\host create, PowerShell New-Service -ComputerName,
+// and Impacket's services.py / smbexec. Distinct from the local
+// service-installation rule: here the focus is remote service manipulation
+// against another host over the network (RPC/SMB), a hallmark of hands-on-
+// keyboard lateral movement and ransomware deployment.
+//
+// Key indicators:
+// - sc.exe with a \\<remotehost> target and "create" / "config" / "start"
+// - PowerShell New-Service / Set-Service with -ComputerName
+// - Impacket artifacts: service names like "BTOBTO", random 8-char, cmd.exe /Q /c
+// - Event 4697/7045 on the destination shortly after an SMB session from a peer
+//
+// False Positives:
+// - Legitimate remote administration and software deployment (SCCM, Ansible)
+// - Clustering / HA tools that manage remote services
+//
+// Recommended Response:
+// 1. Identify the source host initiating the remote service operation
+// 2. Inspect the service binary / command (cmd /c, powershell -enc, temp path)
+// 3. Correlate 4697/7045 on the destination with the source SMB logon
+// 4. Determine if this is authorized admin activity or intrusion
+// 5. Isolate hosts and reset credentials if malicious
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_markers = dynamic([
+    "cmd.exe /c", "cmd /c", "cmd.exe /q", "/q /c", "powershell", "-enc",
+    "-encodedcommand", "\\temp\\", "\\appdata\\", "%comspec%", "rundll32",
+    "regsvr32", "\\\\127.0.0.1\\", "echo ", " > \\\\"
+]);
+let impacket_service_hints = dynamic(["btobto", "bto", "\\admin$\\", "\\\\.\\pipe\\", "output.txt"]);
+
+// Method 1: sc.exe targeting a remote host
+let sc_remote =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has "\\\\"
+    | where ProcessCommandLine has_any ("create", "config", "start", "failure")
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "sc.exe remote service operation",
+        Detail = ProcessCommandLine,
+        Account = AccountName,
+        ParentProcess = InitiatingProcessFileName;
+
+// Method 2: PowerShell New-Service / Set-Service remote
+let ps_remote_service =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has_any ("New-Service", "Set-Service", "sc.exe")
+    | where ProcessCommandLine has "-ComputerName"
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "PowerShell remote service creation",
+        Detail = ProcessCommandLine,
+        Account = AccountName,
+        ParentProcess = InitiatingProcessFileName;
+
+// Method 3: Service install on destination with Impacket/smbexec hints (7045)
+let impacket_service =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID in (4697, 7045)
+    | extend SvcFile = tolower(coalesce(column_ifexists("ServiceFileName", ""), ""))
+    | where SvcFile has_any (suspicious_markers) or SvcFile has_any (impacket_service_hints)
+    | project
+        TimeGenerated,
+        DeviceName = Computer,
+        DetectionType = "Remote service install (Impacket/smbexec pattern)",
+        Detail = SvcFile,
+        Account = SubjectUserName,
+        ParentProcess = "";
+
+union sc_remote, ps_remote_service, impacket_service
+| extend
+    AlertName = "Remote Service Creation / Lateral Movement",
+    Severity = "High",
+    TechniqueId = "T1543.003",
+    TechniqueName = "Create or Modify System Process: Windows Service (Remote)",
+    Description = strcat(
+        "Remote service manipulation (", DetectionType, ") on '", DeviceName,
+        "' by '", Account, "'. Detail: ", Detail
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, Detail, Account, ParentProcess,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

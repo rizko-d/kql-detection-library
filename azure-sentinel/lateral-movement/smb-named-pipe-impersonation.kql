@@ -1,0 +1,79 @@
+// === MITRE ATT&CK ===
+// Technique: T1550.003 — Use Alternate Authentication Material: Pass the Ticket (SMB / Named Pipe)
+// Tactic: Lateral Movement, Defense Evasion
+// Severity: High
+// Data Source: SecurityEvent (5145, 4624), DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Lateral movement leveraging SMB named-pipe access — the transport
+// used by remote-execution tools (PsExec, Impacket smbexec/atexec/dcomexec,
+// Cobalt Strike jump psexec_psh) and by Pass-the-Ticket sessions that then
+// touch privileged named pipes. Focuses on access to remote admin named pipes
+// (svcctl, atsvc, winreg, samr, lsarpc, srvsvc) over SMB from peer hosts.
+//
+// Key indicators:
+// - Event 5145 with RelativeTargetName in svcctl / atsvc / winreg / samr /
+//   lsarpc / srvsvc and ShareName = IPC$
+// - Tool-specific pipes: psexesvc, paexec, remcom, csexec
+// - A network logon (type 3) followed rapidly by privileged pipe access
+// - Many pipe accesses to distinct hosts from one source (fan-out)
+//
+// False Positives:
+// - Legitimate remote administration (services.msc, scheduled task mgmt, regedit)
+// - Monitoring / inventory tools using RPC-over-SMB named pipes
+//
+// Recommended Response:
+// 1. Identify the source account/host and target pipe
+// 2. Distinguish tool pipes (psexesvc/paexec) from native admin pipes
+// 3. Correlate with service creation / task creation on the destination
+// 4. Check for Pass-the-Ticket (anomalous Kerberos) on the source
+// 5. Isolate hosts and reset credentials if malicious
+// === QUERY ===
+
+let lookback = 1d;
+// Privileged / abused named pipes exposed over IPC$
+let sensitive_pipes = dynamic([
+    "svcctl", "atsvc", "winreg", "samr", "lsarpc", "srvsvc", "spoolss",
+    "netdfs", "epmapper"
+]);
+let tool_pipes = dynamic(["psexesvc", "paexec", "remcom", "csexec", "sysexec"]);
+
+SecurityEvent
+| where TimeGenerated > ago(lookback)
+| where EventID == 5145
+| extend RelName = tolower(coalesce(column_ifexists("RelativeTargetName", ""), ""))
+| extend Share = tolower(coalesce(column_ifexists("ShareName", ""), ""))
+// Named-pipe access happens over the IPC$ share
+| where Share has "ipc$"
+| where RelName has_any (sensitive_pipes) or RelName has_any (tool_pipes)
+| extend
+    PipeCategory = case(
+        RelName has_any (tool_pipes), "Known remote-exec tool pipe",
+        RelName has_any (dynamic(["svcctl", "atsvc"])), "Service/Task control pipe (PsExec/atexec)",
+        RelName has_any (dynamic(["samr", "lsarpc", "winreg"])), "Privileged account/registry pipe",
+        "Sensitive admin pipe"
+    )
+| summarize
+    PipeAccessCount = count(),
+    Pipes = make_set(RelName, 30),
+    Categories = make_set(PipeCategory),
+    DestinationCount = dcount(Computer),
+    Destinations = make_set(Computer, 30),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Account = SubjectUserName, SourceIP = tostring(column_ifexists("IpAddress", ""))
+| extend
+    TimeGenerated = LastSeen,
+    AlertName = "SMB Named Pipe Lateral Movement",
+    Severity = "High",
+    TechniqueId = "T1550.003",
+    TechniqueName = "Use Alternate Authentication Material: Pass the Ticket (SMB/Named Pipe)",
+    Description = strcat(
+        "Account '", Account, "' from '", SourceIP, "' accessed ",
+        PipeAccessCount, " sensitive named pipe(s) across ", DestinationCount,
+        " host(s) via IPC$. Categories: ", strcat_array(Categories, ", "), "."
+    )
+| project
+    TimeGenerated, Account, SourceIP, PipeAccessCount, Pipes, Categories,
+    DestinationCount, Destinations, FirstSeen, LastSeen,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by PipeAccessCount desc

@@ -1,6 +1,6 @@
 # MITRE ATT&CK Coverage Matrix
 
-**Last Updated:** 2025-07-26 | **Current Rules:** 20 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
+**Last Updated:** 2025-07-26 | **Current Rules:** 25 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
 
 ## Legend
 
@@ -84,7 +84,7 @@
 | Technique | ID | Rule | Status |
 |---|---|---|---|
 | Network Share Discovery | T1135 | [network-share-discovery.kql](azure-sentinel/discovery/network-share-discovery.kql) | ✅ |
-| Account Discovery: AD | T1087.002 | — | 🟡 v0.3 |
+| Account Discovery: AD | T1087.002 | [active-directory-discovery.kql](azure-sentinel/discovery/active-directory-discovery.kql) | ✅ |
 | Kubernetes RBAC Discovery | T1087.004 | — | 🟡 v0.5 |
 
 ## Lateral Movement
@@ -95,9 +95,10 @@
 | Windows Management Instrumentation | T1047 | [wmi-execution.kql](azure-sentinel/lateral-movement/wmi-execution.kql) | ✅ |
 | Lateral Tool Transfer (PsExec / SMB) | T1570 | [psexec-smb-execution.kql](azure-sentinel/lateral-movement/psexec-smb-execution.kql) | ✅ |
 | Remote Services: RDP | T1021.001 | [rdp-lateral-movement.kql](azure-sentinel/lateral-movement/rdp-lateral-movement.kql) | ✅ |
-| Remote Services: SMB/WinRM | T1021.006 | — | 🟡 v0.3 |
-| Remote Services: DCOM | T1021.003 | — | 🟡 v0.3 |
-| Use Alternate Authentication Material: SMB/Named Pipe | T1550.003 | — | 🟡 v0.3 |
+| Create/Modify Service (Remote) | T1543.003 | [remote-service-creation.kql](azure-sentinel/lateral-movement/remote-service-creation.kql) | ✅ |
+| Remote Services: DCOM | T1021.003 | [dcom-lateral-movement.kql](azure-sentinel/lateral-movement/dcom-lateral-movement.kql) | ✅ |
+| Remote Services: WinRM | T1021.006 | [winrm-powershell-remoting.kql](azure-sentinel/lateral-movement/winrm-powershell-remoting.kql) | ✅ |
+| Use Alternate Authentication Material: SMB/Named Pipe | T1550.003 | [smb-named-pipe-impersonation.kql](azure-sentinel/lateral-movement/smb-named-pipe-impersonation.kql) | ✅ |
 
 ## Collection
 
@@ -132,6 +133,6 @@
 ---
 
 **Tactics covered (current):** 6 / 14
-**Techniques covered (current):** 18 (20 rules)  
+**Techniques covered (current):** 23 (25 rules)  
 **Techniques planned (roadmap):** ~45+  
 **Rule count target:** ~70 across all versions

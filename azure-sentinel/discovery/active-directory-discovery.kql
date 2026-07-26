@@ -1,0 +1,87 @@
+// === MITRE ATT&CK ===
+// Technique: T1087.002 — Account Discovery: Domain Account
+// Tactic: Discovery
+// Severity: Medium
+// Data Source: DeviceProcessEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Active Directory / domain account enumeration performed during the
+// discovery phase — the reconnaissance that precedes privilege escalation and
+// lateral movement. Covers native tooling (net user /domain, net group, dsquery,
+// nltest), PowerShell AD cmdlets and [ADSISearcher], and offensive enumeration
+// frameworks (BloodHound/SharpHound, PowerView, AdFind).
+//
+// Key indicators:
+// - net.exe user/group "/domain", net group "Domain Admins" /domain
+// - dsquery, nltest /dclist, /domain_trusts
+// - PowerView: Get-NetUser, Get-NetGroup, Get-DomainUser, Invoke-BloodHound
+// - SharpHound.exe / adfind.exe execution
+// - [ADSISearcher] / DirectorySearcher LDAP enumeration
+// - A single host issuing many distinct AD-recon commands in a short window
+//
+// False Positives:
+// - Legitimate IT administration and auditing
+// - Identity / directory sync and inventory tools
+// - Helpdesk group-membership lookups
+//
+// Recommended Response:
+// 1. Review the breadth of enumeration (users, groups, trusts, DCs)
+// 2. Identify the account and host performing discovery
+// 3. Watch for BloodHound/SharpHound (mass LDAP collection)
+// 4. Correlate with subsequent privilege escalation / lateral movement
+// 5. If part of an intrusion, expand scope from the source host
+// === QUERY ===
+
+let lookback = 1d;
+let recon_tools = dynamic(["sharphound.exe", "adfind.exe", "bloodhound.exe", "dsquery.exe", "nltest.exe"]);
+let ad_recon_markers = dynamic([
+    "net user /domain", "net user /do", "net group", "/domain",
+    "net accounts /domain", "dsquery", "nltest", "/dclist", "/domain_trusts",
+    "Get-NetUser", "Get-NetGroup", "Get-NetComputer", "Get-DomainUser",
+    "Get-DomainGroup", "Get-ADUser", "Get-ADGroup", "Get-ADComputer",
+    "Invoke-BloodHound", "Invoke-ShareFinder", "[ADSISearcher]",
+    "DirectorySearcher", "Find-DomainAdmin", "Get-NetDomain", "Get-DomainController"
+]);
+
+DeviceProcessEvents
+| where TimeGenerated > ago(lookback)
+| where FileName in~ (recon_tools)
+    or (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has_any ("user", "group", "accounts") and ProcessCommandLine has "/do")
+    or (FileName in~ ("dsquery.exe", "nltest.exe"))
+    or (FileName in~ ("powershell.exe", "pwsh.exe") and ProcessCommandLine has_any (ad_recon_markers))
+    or ProcessCommandLine has_any (ad_recon_markers)
+| extend
+    ReconType = case(
+        FileName in~ (dynamic(["sharphound.exe", "bloodhound.exe"])) or ProcessCommandLine has "Invoke-BloodHound",
+            "BloodHound/SharpHound mass collection",
+        FileName =~ "adfind.exe" or ProcessCommandLine has_any (dynamic(["Get-NetUser", "Get-DomainUser", "[ADSISearcher]", "DirectorySearcher"])),
+            "LDAP enumeration (PowerView/AdFind/ADSI)",
+        FileName in~ (dynamic(["dsquery.exe", "nltest.exe"])) or ProcessCommandLine has_any (dynamic(["dsquery", "nltest", "/dclist", "/domain_trusts"])),
+            "Domain/trust enumeration (dsquery/nltest)",
+        "net user/group domain enumeration"
+    )
+| summarize
+    CommandCount = count(),
+    Commands = make_set(ProcessCommandLine, 25),
+    ReconTypes = make_set(ReconType),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, Account = AccountName
+| extend
+    TimeGenerated = LastSeen,
+    IsHighVolume = CommandCount >= 5,
+    UsesOffensiveTool = ReconTypes has_any (dynamic(["BloodHound/SharpHound mass collection", "LDAP enumeration (PowerView/AdFind/ADSI)"]))
+| extend
+    AlertName = "Active Directory Account Discovery",
+    Severity = iff(UsesOffensiveTool or IsHighVolume, "High", "Medium"),
+    TechniqueId = "T1087.002",
+    TechniqueName = "Account Discovery: Domain Account",
+    Description = strcat(
+        "Account '", Account, "' on '", DeviceName, "' ran ", CommandCount,
+        " AD-recon command(s) within ", datetime_diff('minute', LastSeen, FirstSeen),
+        " minutes. Types: ", strcat_array(ReconTypes, ", "), "."
+    )
+| project
+    TimeGenerated, DeviceName, Account, CommandCount, Commands, ReconTypes,
+    FirstSeen, LastSeen, IsHighVolume, UsesOffensiveTool,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by CommandCount desc

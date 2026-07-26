@@ -1,0 +1,28 @@
+// === Test Case: DCOM Lateral Movement ===
+// Simulates: mmc.exe spawning cmd.exe (MMC20.Application abuse) + PowerShell
+// GetTypeFromProgID with -ComputerName (client) + benign excel opening a file.
+// Expected: 2 alerts (mmc->cmd server side, PS DCOM client side).
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: MMC20.Application DCOM -> mmc.exe spawns cmd
+    datetime(2025-07-26 11:00:00), "cmd.exe",
+    "cmd.exe /c powershell -enc SQBFAFgA",
+    "SYSTEM", "mmc.exe", "SRV-DB01",
+    // Malicious: PowerShell DCOM client instantiation
+    datetime(2025-07-26 11:05:00), "powershell.exe",
+    "powershell.exe [activator]::CreateInstance([type]::GetTypeFromProgID('MMC20.Application','10.10.50.30'))",
+    "attacker", "explorer.exe", "WS-001",
+    // Benign: excel opening a document (should NOT fire — child not suspicious)
+    datetime(2025-07-26 12:00:00), "excel.exe", "excel.exe report.xlsx", "jsmith", "explorer.exe", "WS-002",
+];
+
+TestDeviceProcessEvents

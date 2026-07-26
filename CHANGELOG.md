@@ -1,15 +1,20 @@
 # Changelog
 
 ## v0.3 — 2025-07-26
-### Added — Lateral Movement & Discovery (partial, 5 of 10 rules)
+### Added — Lateral Movement & Discovery (COMPLETE, 10 of 10 rules)
 - **Pass-the-Hash** (T1550.002) — NTLM type-3 logon fan-out across hosts
 - **WMI Execution** (T1047) — wmic process call create, Invoke-WmiMethod, WmiPrvSE children
 - **PsExec / SMB Execution** (T1570) — PSEXESVC service, named pipes, ADMIN$ writes
 - **RDP Lateral Movement** (T1021.001) — internal RDP (type 10) fan-out detection
 - **Network Share Discovery** (T1135) — net view/share, PowerView ShareFinder, recon tools
+- **Remote Service Creation** (T1543.003) — sc.exe \\host, New-Service -ComputerName, Impacket smbexec
+- **DCOM Lateral Movement** (T1021.003) — MMC20.Application, DCOM server spawning shells
+- **WinRM / PowerShell Remoting** (T1021.006) — winrs, Invoke-Command, wsmprovhost children
+- **SMB Named Pipe Impersonation** (T1550.003) — svcctl/atsvc/psexesvc pipe access over IPC$
+- **Active Directory Discovery** (T1087.002) — SharpHound, PowerView, dsquery, nltest, net /domain
 - New `lateral-movement/` and `discovery/` rule categories
-- Test cases for all 5 new rules
-- Updated MITRE ATT&CK matrix (6 tactics, 20 rules)
+- Test cases for all 10 new rules
+- Updated MITRE ATT&CK matrix (6 tactics, 25 rules)
 
 ## v0.2 — 2025-07-26
 ### Added — Execution & Defense Evasion (COMPLETE, 10 of 10 rules)

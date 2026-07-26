@@ -98,10 +98,11 @@ T1197:
 
 T1543.003:
   name: "Create or Modify System Process: Windows Service"
-  tactic: "Persistence"
+  tactic: "Persistence / Lateral Movement"
   severity: "Medium"
   rules:
     - "azure-sentinel/persistence/service-installation.kql"
+    - "azure-sentinel/lateral-movement/remote-service-creation.kql"
 
 T1550.002:
   name: "Use Alternate Authentication Material: Pass the Hash"
@@ -137,3 +138,31 @@ T1135:
   severity: "Medium"
   rules:
     - "azure-sentinel/discovery/network-share-discovery.kql"
+
+T1021.003:
+  name: "Remote Services: Distributed Component Object Model (DCOM)"
+  tactic: "Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/dcom-lateral-movement.kql"
+
+T1021.006:
+  name: "Remote Services: Windows Remote Management (WinRM)"
+  tactic: "Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/winrm-powershell-remoting.kql"
+
+T1550.003:
+  name: "Use Alternate Authentication Material: Pass the Ticket (SMB / Named Pipe)"
+  tactic: "Lateral Movement"
+  severity: "High"
+  rules:
+    - "azure-sentinel/lateral-movement/smb-named-pipe-impersonation.kql"
+
+T1087.002:
+  name: "Account Discovery: Domain Account"
+  tactic: "Discovery"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/discovery/active-directory-discovery.kql"

@@ -1,0 +1,32 @@
+// === Test Case: WinRM / PowerShell Remoting Lateral Movement ===
+// Simulates: winrs -r remote exec + Invoke-Command -ComputerName (client) +
+// wsmprovhost spawning powershell (destination) + benign local PS that won't fire.
+// Expected: 3 alerts (winrs, Invoke-Command, wsmprovhost child).
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: winrs remote command
+    datetime(2025-07-26 13:00:00), "winrs.exe",
+    "winrs.exe -r:SRV-DB01 cmd /c whoami",
+    "attacker", "cmd.exe", "WS-001",
+    // Malicious: Invoke-Command remote
+    datetime(2025-07-26 13:05:00), "powershell.exe",
+    "powershell.exe Invoke-Command -ComputerName SRV-APP01 -ScriptBlock { whoami; hostname }",
+    "akim", "explorer.exe", "WS-002",
+    // Malicious: wsmprovhost spawns powershell on destination
+    datetime(2025-07-26 13:06:00), "powershell.exe",
+    "powershell.exe -enc SQBFAFgA",
+    "SYSTEM", "wsmprovhost.exe", "SRV-APP01",
+    // Benign: local PowerShell script (should NOT fire)
+    datetime(2025-07-26 14:00:00), "powershell.exe", "powershell.exe -File C:\\Scripts\\report.ps1", "admin", "explorer.exe", "WS-003",
+];
+
+TestDeviceProcessEvents

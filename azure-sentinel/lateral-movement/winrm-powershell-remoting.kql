@@ -1,0 +1,98 @@
+// === MITRE ATT&CK ===
+// Technique: T1021.006 — Remote Services: Windows Remote Management (WinRM)
+// Tactic: Lateral Movement
+// Severity: High
+// Data Source: DeviceProcessEvents (Microsoft Defender for Endpoint), SecurityEvent (4624)
+//
+// Detects: Lateral movement via WinRM / PowerShell Remoting (WS-Management).
+// Attackers use Enter-PSSession, Invoke-Command -ComputerName, and winrs.exe to
+// execute commands on remote hosts. On the destination, the WinRM service
+// (wsmprovhost.exe) hosts the remote session and spawns the attacker's commands.
+//
+// Key indicators:
+// - winrs.exe -r:<host> executing commands
+// - PowerShell Invoke-Command / Enter-PSSession / New-PSSession with -ComputerName
+// - wsmprovhost.exe (WinRM host) spawning cmd/powershell/script hosts on destination
+// - Network logon (type 3) immediately preceding wsmprovhost activity
+//
+// False Positives:
+// - Legitimate remote administration via PowerShell Remoting
+// - Configuration management (DSC, Ansible WinRM, SCCM)
+// - Monitoring tools using WinRM
+//
+// Recommended Response:
+// 1. Determine source and destination hosts of the WinRM session
+// 2. Inspect commands executed under wsmprovhost.exe
+// 3. Verify the account is authorized for remote PowerShell
+// 4. Correlate with credential access and other lateral movement
+// 5. Restrict WinRM via trusted hosts / JEA and monitor 5985/5986
+// === QUERY ===
+
+let lookback = 1d;
+let suspicious_children = dynamic([
+    "cmd.exe", "powershell.exe", "pwsh.exe", "mshta.exe", "rundll32.exe",
+    "regsvr32.exe", "wscript.exe", "cscript.exe", "certutil.exe",
+    "bitsadmin.exe", "net.exe", "whoami.exe", "nltest.exe"
+]);
+let winrm_client_markers = dynamic([
+    "Invoke-Command", "Enter-PSSession", "New-PSSession",
+    "-ComputerName", "-Session", "winrs", "wsman"
+]);
+
+// Method 1: winrs.exe remote command execution (client side)
+let winrs_exec =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName =~ "winrs.exe"
+    | where ProcessCommandLine has_any ("-r:", "/r:", "-remote", "cmd", "powershell")
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "winrs.exe remote execution",
+        HostProcess = "winrs.exe",
+        ChildOrCommand = ProcessCommandLine,
+        Account = AccountName;
+
+// Method 2: PowerShell Remoting cmdlets with remote target (client side)
+let ps_remoting =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has_any (winrm_client_markers)
+    | where ProcessCommandLine has_any ("-ComputerName", "Enter-PSSession", "New-PSSession", "Invoke-Command")
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "PowerShell Remoting (Invoke-Command/PSSession)",
+        HostProcess = "powershell.exe",
+        ChildOrCommand = ProcessCommandLine,
+        Account = AccountName;
+
+// Method 3: wsmprovhost.exe spawning suspicious children (destination side)
+let wsmprovhost_children =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where InitiatingProcessFileName =~ "wsmprovhost.exe"
+    | where FileName in~ (suspicious_children)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "wsmprovhost spawned suspicious child (remote session landed)",
+        HostProcess = "wsmprovhost.exe",
+        ChildOrCommand = strcat(FileName, " | ", ProcessCommandLine),
+        Account = AccountName;
+
+union winrs_exec, ps_remoting, wsmprovhost_children
+| extend
+    AlertName = "WinRM / PowerShell Remoting Lateral Movement",
+    Severity = "High",
+    TechniqueId = "T1021.006",
+    TechniqueName = "Remote Services: Windows Remote Management",
+    Description = strcat(
+        "WinRM lateral movement (", DetectionType, ") on '", DeviceName,
+        "' by '", Account, "'."
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, HostProcess, ChildOrCommand, Account,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc
