@@ -1,0 +1,108 @@
+// === MITRE ATT&CK ===
+// Technique: T1074 — Data Staged: Local / Remote Data Staging
+// Tactic: Collection
+// Severity: Medium
+// Data Source: DeviceProcessEvents, DeviceFileEvents (Microsoft Defender for Endpoint)
+//
+// Detects: Data staging prior to exfiltration — attackers commonly collect and
+// compress data into a single archive (zip/rar/7z) before sending it out. Flags
+// use of archiving utilities with password protection, output to staging paths,
+// and bulk archive creation, especially targeting sensitive directories.
+//
+// Key indicators:
+// - rar.exe / 7z.exe / winrar / makecab / tar with compression + password flags
+// - PowerShell Compress-Archive of many files or sensitive locations
+// - Archives written to Temp/AppData/ProgramData/Public staging paths
+// - Password-protected archives (-hp / -p) — classic exfil staging
+//
+// False Positives:
+// - Legitimate backups and admin archiving
+// - Developers packaging builds / logs
+// - Software that bundles data for support cases
+//
+// Recommended Response:
+// 1. Inspect the archive contents / source directories
+// 2. Identify the account and process performing the staging
+// 3. Look for password protection (strong exfil indicator)
+// 4. Correlate with subsequent outbound transfer (exfiltration)
+// 5. Preserve the archive as evidence and investigate the host
+// === QUERY ===
+
+let lookback = 1d;
+let archive_tools = dynamic([
+    "rar.exe", "winrar.exe", "7z.exe", "7za.exe", "7zg.exe", "makecab.exe",
+    "tar.exe", "zip.exe", "gzip.exe", "winzip.exe", "peazip.exe"
+]);
+let password_flags = dynamic(["-hp", "-p", "/p", "-password", "password="]);
+let staging_paths = dynamic([
+    "\\temp\\", "\\appdata\\", "\\programdata\\", "\\users\\public\\",
+    "\\perflogs\\", "\\windows\\temp\\", "%temp%", "%appdata%"
+]);
+let sensitive_sources = dynamic([
+    "\\documents\\", "\\desktop\\", "\\downloads\\", "\\finance\\",
+    "\\hr\\", "\\accounting\\", "\\shares\\", "\\\\"
+]);
+
+// Method 1: Archiving utility execution
+let archive_exec =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ (archive_tools)
+    | extend CmdLower = tolower(ProcessCommandLine)
+    | extend
+        HasPassword = CmdLower has_any (password_flags),
+        ToStaging = CmdLower has_any (staging_paths),
+        FromSensitive = CmdLower has_any (sensitive_sources)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "Archive utility execution",
+        FileName,
+        ProcessCommandLine,
+        Account = AccountName,
+        HasPassword, ToStaging, FromSensitive;
+
+// Method 2: PowerShell Compress-Archive
+let ps_compress =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(lookback)
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has "Compress-Archive"
+    | extend CmdLower = tolower(ProcessCommandLine)
+    | extend
+        HasPassword = false,
+        ToStaging = CmdLower has_any (staging_paths),
+        FromSensitive = CmdLower has_any (sensitive_sources)
+    | project
+        TimeGenerated,
+        DeviceName,
+        DetectionType = "PowerShell Compress-Archive",
+        FileName,
+        ProcessCommandLine,
+        Account = AccountName,
+        HasPassword, ToStaging, FromSensitive;
+
+union archive_exec, ps_compress
+| extend IsSuspicious = HasPassword or ToStaging or FromSensitive
+| extend
+    SuspicionReason = case(
+        HasPassword, "Password-protected archive (exfil staging indicator)",
+        FromSensitive and ToStaging, "Sensitive data archived to staging path",
+        ToStaging, "Archive written to staging path",
+        FromSensitive, "Sensitive source directory archived",
+        "Archive creation"
+    ),
+    AlertName = "Data Staging for Exfiltration",
+    Severity = iff(HasPassword, "High", iff(IsSuspicious, "Medium", "Low")),
+    TechniqueId = "T1074",
+    TechniqueName = "Data Staged"
+| extend
+    Description = strcat(
+        "Data staging (", DetectionType, ") on '", DeviceName, "' by '",
+        Account, "'. ", SuspicionReason, "."
+    )
+| project
+    TimeGenerated, DeviceName, DetectionType, FileName, ProcessCommandLine, Account,
+    HasPassword, ToStaging, FromSensitive, IsSuspicious, SuspicionReason,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by IsSuspicious desc, TimeGenerated desc

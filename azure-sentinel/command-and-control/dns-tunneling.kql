@@ -1,0 +1,74 @@
+// === MITRE ATT&CK ===
+// Technique: T1572 — Protocol Tunneling (DNS Tunneling)
+// Tactic: Command and Control, Exfiltration
+// Severity: High
+// Data Source: DnsEvents, DeviceNetworkEvents (Microsoft Defender for Endpoint)
+//
+// Detects: DNS tunneling, where attackers encode data or C2 traffic inside DNS
+// queries to bypass egress controls. Signatures include long/high-entropy
+// subdomains, an abnormally high query volume to a single parent domain, unusual
+// record types (TXT/NULL), and a high ratio of unique subdomains per domain.
+//
+// Key indicators:
+// - Very long query names (encoded data in the subdomain labels)
+// - High Shannon-entropy subdomains (base32/base64-looking gibberish)
+// - Many unique subdomains under one registered/parent domain
+// - Heavy use of TXT / NULL / CNAME record types for a single domain
+//
+// False Positives:
+// - CDNs, antivirus/telemetry, and cloud services with dynamic subdomains
+// - Email security (SPF/DKIM lookups) and some SaaS heartbeats
+//
+// Recommended Response:
+// 1. Identify the parent domain and its registration/reputation
+// 2. Inspect a sample of the subdomains for encoded payloads
+// 3. Determine the source host(s) and responsible process
+// 4. Block the domain at the resolver / firewall
+// 5. Investigate the source host for C2 implants
+// === QUERY ===
+
+let lookback = 1d;
+let unique_subdomain_threshold = 50;
+let long_query_len = 50;
+
+// Extract the registered/parent domain (last two labels) and the subdomain part
+DnsEvents
+| where TimeGenerated > ago(lookback)
+| where isnotempty(Name)
+| extend QueryName = tolower(Name)
+| extend Labels = split(QueryName, ".")
+| extend LabelCount = array_length(Labels)
+| where LabelCount >= 3
+| extend ParentDomain = strcat(tostring(Labels[LabelCount - 2]), ".", tostring(Labels[LabelCount - 1]))
+| extend Subdomain = substring(QueryName, 0, indexof(QueryName, ParentDomain))
+| extend SubLen = strlen(Subdomain)
+| summarize
+    UniqueSubdomains = dcount(Subdomain),
+    TotalQueries = count(),
+    MaxSubLen = max(SubLen),
+    AvgSubLen = avg(SubLen),
+    LongQueries = countif(strlen(QueryName) >= long_query_len),
+    RecordTypes = make_set(column_ifexists("QueryType", ""), 20),
+    SampleSubdomains = make_set(Subdomain, 10),
+    SourceIPs = make_set(column_ifexists("ClientIP", ""), 20)
+    by ParentDomain
+| where UniqueSubdomains >= unique_subdomain_threshold
+    or (LongQueries >= 20 and AvgSubLen >= 20)
+| extend
+    TXTHeavy = RecordTypes has_any (dynamic(["TXT", "NULL", "CNAME"])),
+    TimeGenerated = now(),
+    AlertName = "DNS Tunneling Anomaly",
+    Severity = "High",
+    TechniqueId = "T1572",
+    TechniqueName = "Protocol Tunneling (DNS)",
+    Description = strcat(
+        "Domain '", ParentDomain, "' received ", TotalQueries, " queries across ",
+        UniqueSubdomains, " unique subdomains (", LongQueries,
+        " long queries, avg sublen ", round(AvgSubLen, 0),
+        ") — consistent with DNS tunneling."
+    )
+| project
+    TimeGenerated, ParentDomain, UniqueSubdomains, TotalQueries, LongQueries,
+    MaxSubLen, AvgSubLen, TXTHeavy, RecordTypes, SampleSubdomains, SourceIPs,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by UniqueSubdomains desc

@@ -1,0 +1,25 @@
+// === Test Case: External Email Forwarding Rule ===
+// Simulates: New-InboxRule forwarding to an external gmail address (malicious
+// BEC) + a benign rule forwarding to a same-domain colleague.
+// Expected: 1 alert (external forward to attacker@gmail.com).
+// Query expects: OfficeActivity (Exchange)
+
+let TestOfficeActivity = datatable(
+    TimeGenerated: datetime,
+    Operation: string,
+    Parameters: string,
+    UserId: string,
+    ClientIP: string
+)
+[
+    // Malicious: forward to external gmail address (BEC)
+    datetime(2025-07-26 17:00:00), "New-InboxRule",
+    "[{\"Name\":\"ForwardTo\",\"Value\":\"attacker@gmail.com\"},{\"Name\":\"Name\",\"Value\":\"RSS\"}]",
+    "jsmith@contoso.com", "185.220.101.50",
+    // Benign: forward to internal colleague (same domain, should NOT fire)
+    datetime(2025-07-26 18:00:00), "New-InboxRule",
+    "[{\"Name\":\"ForwardTo\",\"Value\":\"akim@contoso.com\"},{\"Name\":\"Name\",\"Value\":\"Vacation\"}]",
+    "jsmith@contoso.com", "10.10.5.20",
+];
+
+TestOfficeActivity

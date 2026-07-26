@@ -1,0 +1,29 @@
+// === Test Case: Data Staging for Exfiltration ===
+// Simulates: rar.exe creating a password-protected archive from Documents into
+// Temp (malicious high) + Compress-Archive to staging + benign local zip.
+// Expected: 2 alerts (rar -hp high, Compress-Archive to staging medium).
+// Query expects: DeviceProcessEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceProcessEvents = datatable(
+    TimeGenerated: datetime,
+    FileName: string,
+    ProcessCommandLine: string,
+    AccountName: string,
+    DeviceName: string
+)
+[
+    // Malicious: password-protected rar of Documents into Temp staging
+    datetime(2025-07-26 15:00:00), "rar.exe",
+    "rar.exe a -hpSecretPass123 C:\\Windows\\Temp\\loot.rar C:\\Users\\jsmith\\Documents\\*",
+    "jsmith", "WS-001",
+    // Malicious: Compress-Archive of Desktop into ProgramData staging
+    datetime(2025-07-26 15:05:00), "powershell.exe",
+    "powershell.exe Compress-Archive -Path C:\\Users\\akim\\Desktop\\* -DestinationPath C:\\ProgramData\\data.zip",
+    "akim", "WS-002",
+    // Benign: user zipping a project folder locally (should be low)
+    datetime(2025-07-26 16:00:00), "7z.exe",
+    "7z.exe a C:\\Users\\bwilson\\project.7z C:\\Users\\bwilson\\project\\",
+    "bwilson", "WS-003",
+];
+
+TestDeviceProcessEvents

@@ -1,0 +1,69 @@
+// === MITRE ATT&CK ===
+// Technique: T1114.003 — Email Collection: Email Forwarding Rule
+// Tactic: Collection, Exfiltration
+// Severity: High
+// Data Source: OfficeActivity (Exchange), CloudAppEvents (Microsoft Defender for Cloud Apps)
+//
+// Detects: Creation or modification of email forwarding / inbox rules that send
+// mail to external addresses — a common Business Email Compromise (BEC) and data
+// exfiltration technique. Attackers who compromise a mailbox set an auto-forward
+// or redirect rule so copies of email silently flow to an attacker-controlled
+// external inbox.
+//
+// Key indicators:
+// - New-InboxRule / Set-InboxRule / Set-Mailbox with ForwardTo / RedirectTo /
+//   ForwardingSMTPAddress pointing to an EXTERNAL domain
+// - Set-Mailbox -DeliverToMailboxAndForward with external forwarding
+// - Rules that move mail to obscure folders then forward (hiding)
+// - Transport rules forwarding externally
+//
+// False Positives:
+// - Legitimate user-configured forwarding (to personal but authorized addresses)
+// - Delegation / shared-mailbox workflows
+// - Admin-configured journaling / archival
+//
+// Recommended Response:
+// 1. Identify the mailbox, the rule, and the external forwarding target
+// 2. Verify with the user whether they created the rule
+// 3. If unauthorized: disable/delete the rule, reset credentials, revoke sessions
+// 4. Check for other BEC indicators (impossible travel, MFA changes, OAuth grants)
+// 5. Hunt for the same external target across other mailboxes
+// === QUERY ===
+
+let lookback = 1d;
+let forwarding_ops = dynamic([
+    "New-InboxRule", "Set-InboxRule", "Set-Mailbox",
+    "Set-TransportRule", "New-TransportRule", "Set-MailboxAutoReplyConfiguration"
+]);
+
+OfficeActivity
+| where TimeGenerated > ago(lookback)
+| where Operation in~ (forwarding_ops)
+| extend ParamText = tolower(tostring(column_ifexists("Parameters", "")))
+// Rule involves forwarding / redirecting to a target
+| where ParamText has_any ("forwardto", "redirectto", "forwardingsmtpaddress", "delivertomailboxandforward")
+| extend
+    ExternalTarget = extract(@"(?:forwardto|redirectto|forwardingsmtpaddress)[""'\s:=]+([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})", 1, ParamText)
+| extend
+    TargetDomain = tostring(split(ExternalTarget, "@")[1]),
+    Mailbox = tostring(column_ifexists("UserId", "")),
+    ActorDomain = tolower(tostring(split(tostring(column_ifexists("UserId", "")), "@")[1]))
+| where isnotempty(ExternalTarget)
+// Flag when the forwarding target domain differs from the actor's own domain (external)
+| where isnotempty(TargetDomain) and TargetDomain != ActorDomain
+| extend
+    TimeGenerated = TimeGenerated,
+    ClientIP = tostring(column_ifexists("ClientIP", "")),
+    AlertName = "External Email Forwarding Rule",
+    Severity = "High",
+    TechniqueId = "T1114.003",
+    TechniqueName = "Email Collection: Email Forwarding Rule",
+    Description = strcat(
+        "Mailbox '", Mailbox, "' had a forwarding rule (", Operation,
+        ") set to external address '", ExternalTarget, "' (domain '",
+        TargetDomain, "') — possible BEC / mailbox exfiltration."
+    )
+| project
+    TimeGenerated, Mailbox, Operation, ExternalTarget, TargetDomain, ClientIP,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by TimeGenerated desc

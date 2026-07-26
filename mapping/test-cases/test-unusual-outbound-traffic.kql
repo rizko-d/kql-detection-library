@@ -1,0 +1,28 @@
+// === Test Case: Unusual Outbound Data Transfer ===
+// Simulates: host WS-001 with a 7-day baseline of ~10MB/day suddenly sending
+// 500MB to an external IP (z-score spike) + a normal host within baseline.
+// Expected: 1 alert (WS-001 anomalous egress).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RemoteIPType: string,
+    RemoteIP: string,
+    RemotePort: int,
+    SentBytes: long,
+    DeviceName: string
+)
+[
+    // Baseline period (prior 7d): WS-001 ~10MB/day
+    datetime(2025-07-20 09:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 10000000, "WS-001",
+    datetime(2025-07-21 09:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 11000000, "WS-001",
+    datetime(2025-07-22 09:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 9500000, "WS-001",
+    datetime(2025-07-23 09:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 10500000, "WS-001",
+    // Current window: WS-001 exfil spike to rare external IP
+    datetime(2025-07-26 22:00:00), "ConnectionSuccess", "Public", "185.220.101.50", 8443, 500000000, "WS-001",
+    // Normal host within baseline (should NOT fire)
+    datetime(2025-07-26 10:00:00), "ConnectionSuccess", "Public", "20.50.1.1", 443, 8000000, "WS-005",
+];
+
+TestDeviceNetworkEvents

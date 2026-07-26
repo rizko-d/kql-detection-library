@@ -1,6 +1,6 @@
 # MITRE ATT&CK Coverage Matrix
 
-**Last Updated:** 2025-07-26 | **Current Rules:** 25 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
+**Last Updated:** 2025-07-26 | **Current Rules:** 30 | **Roadmap Scope:** ~70 rules across v0.1–v0.8
 
 ## Legend
 
@@ -104,15 +104,15 @@
 
 | Technique | ID | Rule | Status |
 |---|---|---|---|
-| Email Collection: Auto-Forwarding | T1114.003 | — | 🟡 v0.4 |
-| Data Staging | T1074 | — | 🟡 v0.4 |
+| Email Collection: Auto-Forwarding | T1114.003 | [email-forwarding-exfiltration.kql](azure-sentinel/collection/email-forwarding-exfiltration.kql) | ✅ |
+| Data Staging | T1074 | [data-staging.kql](azure-sentinel/collection/data-staging.kql) | ✅ |
 
 ## Command and Control
 
 | Technique | ID | Rule | Status |
 |---|---|---|---|
-| DNS Tunneling | T1572 | — | 🟡 v0.4 |
-| Web Service: Beaconing | T1071.001 | — | 🟡 v0.4 |
+| DNS Tunneling | T1572 | [dns-tunneling.kql](azure-sentinel/command-and-control/dns-tunneling.kql) | ✅ |
+| Web Service: Beaconing | T1071.001 | [beaconing-pattern.kql](azure-sentinel/command-and-control/beaconing-pattern.kql) | ✅ |
 | Web Service: WebSocket | T1071.001 | — | 🟡 v0.4 |
 | Non-Application Layer Protocol | T1571 | — | 🟡 v0.4 |
 
@@ -120,7 +120,7 @@
 
 | Technique | ID | Rule | Status |
 |---|---|---|---|
-| Exfiltration Over C2 Channel | T1048 | — | 🟡 v0.4 |
+| Exfiltration Over Alternative Protocol | T1048 | [unusual-outbound-traffic.kql](azure-sentinel/exfiltration/unusual-outbound-traffic.kql) | ✅ |
 | Exfiltration to Cloud Storage | T1567.002 | — | 🟡 v0.4 |
 | Automated Exfiltration: Large Upload | T1030 | — | 🟡 v0.4 |
 
@@ -132,7 +132,7 @@
 
 ---
 
-**Tactics covered (current):** 6 / 14
-**Techniques covered (current):** 23 (25 rules)  
+**Tactics covered (current):** 9 / 14
+**Techniques covered (current):** 28 (30 rules)  
 **Techniques planned (roadmap):** ~45+  
 **Rule count target:** ~70 across all versions

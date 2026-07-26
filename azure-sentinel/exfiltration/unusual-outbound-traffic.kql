@@ -1,0 +1,77 @@
+// === MITRE ATT&CK ===
+// Technique: T1048 — Exfiltration Over Alternative Protocol
+// Tactic: Exfiltration
+// Severity: High
+// Data Source: DeviceNetworkEvents (Microsoft Defender for Endpoint), CommonSecurityLog
+//
+// Detects: Unusually large outbound data transfers from hosts that normally do
+// not egress large volumes — a hallmark of data exfiltration. Baselines each
+// device's outbound byte volume and flags statistically anomalous spikes,
+// especially to external / rare destinations over non-standard ports.
+//
+// Key indicators:
+// - A single host sending an anomalously high outbound byte total
+// - Egress to external IPs (not RFC1918) over uncommon ports
+// - Sudden spike relative to the host's own historical baseline
+// - Large sustained transfers to a small number of remote endpoints
+//
+// False Positives:
+// - Legitimate backups / cloud sync (OneDrive, Dropbox, backup agents)
+// - Software updates and large legitimate uploads
+// - Media/dev workstations pushing large artifacts
+//
+// Recommended Response:
+// 1. Identify the destination IP/domain and its reputation
+// 2. Determine the process responsible for the egress
+// 3. Check whether the volume is expected for that host's role
+// 4. Correlate with data staging / collection activity beforehand
+// 5. Block the destination and investigate the source host if malicious
+// === QUERY ===
+
+let lookback = 1d;
+let baseline_window = 7d;
+let min_bytes = 104857600;          // 100 MB floor to reduce noise
+let zscore_threshold = 3.0;
+
+// Per-device outbound baseline over the prior week
+let baseline = materialize(
+    DeviceNetworkEvents
+    | where TimeGenerated between (ago(baseline_window) .. ago(lookback))
+    | where ActionType == "ConnectionSuccess"
+    | where RemoteIPType == "Public"
+    | summarize DailyBytes = sum(tolong(column_ifexists("SentBytes", 0))) by DeviceName, bin(TimeGenerated, 1d)
+    | summarize AvgBytes = avg(DailyBytes), StdevBytes = stdev(DailyBytes) by DeviceName
+);
+
+// Current-window outbound volume per device + destination
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType == "ConnectionSuccess"
+| where RemoteIPType == "Public"
+| summarize
+    TotalBytes = sum(tolong(column_ifexists("SentBytes", 0))),
+    ConnectionCount = count(),
+    Destinations = make_set(RemoteIP, 50),
+    Ports = make_set(RemotePort, 30)
+    by DeviceName
+| where TotalBytes >= min_bytes
+| join kind=inner baseline on DeviceName
+| extend ZScore = iff(StdevBytes > 0, (TotalBytes - AvgBytes) / StdevBytes, 0.0)
+| where ZScore >= zscore_threshold
+| extend
+    TimeGenerated = now(),
+    AlertName = "Unusual Outbound Data Transfer",
+    Severity = "High",
+    TechniqueId = "T1048",
+    TechniqueName = "Exfiltration Over Alternative Protocol",
+    Description = strcat(
+        "Host '", DeviceName, "' sent ", format_bytes(TotalBytes),
+        " outbound (z-score ", round(ZScore, 1), " vs 7-day baseline avg ",
+        format_bytes(AvgBytes), ") across ", ConnectionCount,
+        " connection(s) to ", array_length(Destinations), " destination(s)."
+    )
+| project
+    TimeGenerated, DeviceName, TotalBytes, AvgBytes, ZScore, ConnectionCount,
+    Destinations, Ports,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by ZScore desc

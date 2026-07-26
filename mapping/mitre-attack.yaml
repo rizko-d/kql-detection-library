@@ -166,3 +166,38 @@ T1087.002:
   severity: "Medium"
   rules:
     - "azure-sentinel/discovery/active-directory-discovery.kql"
+
+T1048:
+  name: "Exfiltration Over Alternative Protocol"
+  tactic: "Exfiltration"
+  severity: "High"
+  rules:
+    - "azure-sentinel/exfiltration/unusual-outbound-traffic.kql"
+
+T1572:
+  name: "Protocol Tunneling (DNS Tunneling)"
+  tactic: "Command and Control"
+  severity: "High"
+  rules:
+    - "azure-sentinel/command-and-control/dns-tunneling.kql"
+
+T1071.001:
+  name: "Application Layer Protocol: Web Protocols (Beaconing)"
+  tactic: "Command and Control"
+  severity: "High"
+  rules:
+    - "azure-sentinel/command-and-control/beaconing-pattern.kql"
+
+T1074:
+  name: "Data Staged"
+  tactic: "Collection"
+  severity: "Medium"
+  rules:
+    - "azure-sentinel/collection/data-staging.kql"
+
+T1114.003:
+  name: "Email Collection: Email Forwarding Rule"
+  tactic: "Collection"
+  severity: "High"
+  rules:
+    - "azure-sentinel/collection/email-forwarding-exfiltration.kql"

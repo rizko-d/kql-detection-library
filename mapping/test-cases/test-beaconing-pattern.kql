@@ -1,0 +1,39 @@
+// === Test Case: C2 Beaconing Pattern ===
+// Simulates: host WS-001 beaconing to 185.100.50.10 every ~60s (low jitter,
+// 14 connections) + a host making irregular human-driven web requests.
+// Expected: 1 alert (regular beacon, ConnectionCount>=12, low stdev).
+// Query expects: DeviceNetworkEvents (Microsoft Defender for Endpoint)
+
+let TestDeviceNetworkEvents = datatable(
+    TimeGenerated: datetime,
+    ActionType: string,
+    RemoteIPType: string,
+    RemoteIP: string,
+    RemoteUrl: string,
+    RemotePort: int,
+    InitiatingProcessFileName: string,
+    DeviceName: string
+)
+[
+    // Malicious: regular 60s beacon (14 connections, near-zero jitter)
+    datetime(2025-07-26 12:00:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:01:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:02:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:03:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:04:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:05:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:06:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:07:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:08:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:09:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:10:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:11:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:12:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    datetime(2025-07-26 12:13:00), "ConnectionSuccess", "Public", "185.100.50.10", "hxxp://c2", 443, "svchost.exe", "WS-001",
+    // Benign: irregular human browsing (should NOT fire — high jitter)
+    datetime(2025-07-26 14:00:00), "ConnectionSuccess", "Public", "20.50.1.1", "hxxp://news", 443, "chrome.exe", "WS-005",
+    datetime(2025-07-26 14:03:12), "ConnectionSuccess", "Public", "20.50.1.1", "hxxp://news", 443, "chrome.exe", "WS-005",
+    datetime(2025-07-26 14:19:45), "ConnectionSuccess", "Public", "20.50.1.1", "hxxp://news", 443, "chrome.exe", "WS-005",
+];
+
+TestDeviceNetworkEvents

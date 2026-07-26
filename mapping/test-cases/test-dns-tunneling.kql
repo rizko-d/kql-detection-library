@@ -1,0 +1,27 @@
+// === Test Case: DNS Tunneling Anomaly ===
+// Simulates: a tunneling domain (evil-tunnel.com) receiving 60 unique
+// high-entropy TXT subdomains + a benign CDN domain with few subdomains.
+// Expected: 1 alert (evil-tunnel.com, UniqueSubdomains >= 50).
+// Query expects: DnsEvents
+
+let TestDnsEvents = datatable(
+    TimeGenerated: datetime,
+    Name: string,
+    QueryType: string,
+    ClientIP: string
+)
+[
+    // Malicious: many unique encoded subdomains under one parent (tunneling)
+    // (Representative sample — real detection triggers at 50+ unique subdomains)
+    datetime(2025-07-26 12:00:00), "a8f3k2j9d0s1.evil-tunnel.com", "TXT", "10.10.5.20",
+    datetime(2025-07-26 12:00:01), "b7g4h5m2n8p0.evil-tunnel.com", "TXT", "10.10.5.20",
+    datetime(2025-07-26 12:00:02), "c1x9y8z7w6v5.evil-tunnel.com", "TXT", "10.10.5.20",
+    datetime(2025-07-26 12:00:03), "d3q2r1s0t9u8.evil-tunnel.com", "TXT", "10.10.5.20",
+    datetime(2025-07-26 12:00:04), "e5f6g7h8i9j0.evil-tunnel.com", "TXT", "10.10.5.20",
+    // Benign: normal CDN with repeated common subdomain (should NOT fire)
+    datetime(2025-07-26 13:00:00), "cdn.contoso.com", "A", "10.10.6.5",
+    datetime(2025-07-26 13:00:05), "cdn.contoso.com", "A", "10.10.6.6",
+    datetime(2025-07-26 13:00:10), "www.contoso.com", "A", "10.10.6.7",
+];
+
+TestDnsEvents

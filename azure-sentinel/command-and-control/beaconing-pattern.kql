@@ -1,0 +1,76 @@
+// === MITRE ATT&CK ===
+// Technique: T1071.001 — Application Layer Protocol: Web Protocols (Beaconing)
+// Tactic: Command and Control
+// Severity: High
+// Data Source: DeviceNetworkEvents (Microsoft Defender for Endpoint), CommonSecurityLog
+//
+// Detects: C2 beaconing — the regular, periodic check-ins an implant makes to
+// its command server. The signature is a highly regular time interval between
+// connections from one host to one destination, low jitter, and consistent
+// (often small) request sizes. This rule computes the regularity of inter-
+// connection intervals to surface automated beacons hiding in HTTP/HTTPS.
+//
+// Key indicators:
+// - Repeated connections at a near-constant interval (low standard deviation)
+// - A minimum number of connections to qualify as a beacon
+// - Connections to external / rare destinations
+// - Consistent small payload sizes (heartbeat-like)
+//
+// False Positives:
+// - Legitimate polling: software updates, telemetry, monitoring agents
+// - Certificate/OCSP checks, time sync, RSS/feed pollers
+// - SaaS keep-alives and push notification channels
+//
+// Recommended Response:
+// 1. Identify the destination and its reputation (age, category, TLS cert)
+// 2. Determine the process responsible for the periodic connections
+// 3. Assess the interval — human vs machine regularity
+// 4. Correlate with other C2 / discovery indicators on the host
+// 5. Block the destination and isolate the host if confirmed C2
+// === QUERY ===
+
+let lookback = 1d;
+let min_connections = 12;           // need enough beacons to judge regularity
+let max_interval_stdev_sec = 30;    // low jitter => automated beacon
+let min_mean_interval_sec = 30;     // ignore very chatty sub-30s app traffic
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(lookback)
+| where ActionType == "ConnectionSuccess"
+| where RemoteIPType == "Public"
+| project TimeGenerated, DeviceName, RemoteIP, RemoteUrl = column_ifexists("RemoteUrl", ""), RemotePort, InitiatingProcessFileName
+| order by DeviceName, RemoteIP, TimeGenerated asc
+| serialize
+| extend PrevTime = prev(TimeGenerated), PrevKey = prev(strcat(DeviceName, RemoteIP))
+| extend CurKey = strcat(DeviceName, RemoteIP)
+| extend IntervalSec = iff(PrevKey == CurKey, datetime_diff('second', TimeGenerated, PrevTime), long(null))
+| where isnotempty(IntervalSec)
+| summarize
+    ConnectionCount = count(),
+    MeanInterval = avg(IntervalSec),
+    StdevInterval = stdev(IntervalSec),
+    MinInterval = min(IntervalSec),
+    MaxInterval = max(IntervalSec),
+    Processes = make_set(InitiatingProcessFileName, 10),
+    SampleUrl = any(RemoteUrl)
+    by DeviceName, RemoteIP
+| where ConnectionCount >= min_connections
+    and MeanInterval >= min_mean_interval_sec
+    and StdevInterval <= max_interval_stdev_sec
+| extend
+    RegularityScore = round(1.0 - (StdevInterval / (MeanInterval + 1)), 3),
+    TimeGenerated = now(),
+    AlertName = "C2 Beaconing Pattern",
+    Severity = "High",
+    TechniqueId = "T1071.001",
+    TechniqueName = "Application Layer Protocol: Web Protocols (Beaconing)",
+    Description = strcat(
+        "Host '", DeviceName, "' beaconed to '", RemoteIP, "' ", ConnectionCount,
+        " times at a near-constant interval (mean ", round(MeanInterval, 0),
+        "s, stdev ", round(StdevInterval, 1), "s) — consistent with automated C2."
+    )
+| project
+    TimeGenerated, DeviceName, RemoteIP, SampleUrl, ConnectionCount, MeanInterval,
+    StdevInterval, MinInterval, MaxInterval, RegularityScore, Processes,
+    AlertName, Severity, TechniqueId, TechniqueName, Description
+| sort by RegularityScore desc

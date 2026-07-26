@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4 — 2025-07-26
+### Added — Exfiltration & C2 (partial, 5 of 10 rules)
+- **Unusual Outbound Traffic** (T1048) — per-device egress baseline + z-score anomaly detection
+- **DNS Tunneling** (T1572) — high unique-subdomain count, long/high-entropy queries, TXT-heavy
+- **Beaconing Pattern** (T1071.001) — regular inter-connection interval (low jitter) C2 detection
+- **Data Staging** (T1074) — rar/7z/Compress-Archive with password/staging-path/sensitive-source
+- **Email Forwarding Exfiltration** (T1114.003) — external inbox forwarding rules (BEC)
+- New `exfiltration/`, `command-and-control/`, and `collection/` rule categories
+- Test cases for all 5 new rules
+- Updated MITRE ATT&CK matrix (9 tactics, 30 rules)
+
 ## v0.3 — 2025-07-26
 ### Added — Lateral Movement & Discovery (COMPLETE, 10 of 10 rules)
 - **Pass-the-Hash** (T1550.002) — NTLM type-3 logon fan-out across hosts

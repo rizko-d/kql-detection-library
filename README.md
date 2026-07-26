@@ -6,9 +6,9 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 25 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
-| **Tactics Covered** | 6 of 14 |
-| **Techniques Covered** | 25 of ~200 |
+| **Total Rules** | 30 (current) — see [Roadmap](#roadmap) for planned additions up to ~70 |
+| **Tactics Covered** | 9 of 14 |
+| **Techniques Covered** | 30 of ~200 |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -82,6 +82,26 @@
 | [Network Share Discovery](azure-sentinel/discovery/network-share-discovery.kql) | T1135 | Low/Medium | DeviceProcessEvents (MDE) |
 | [Active Directory Discovery](azure-sentinel/discovery/active-directory-discovery.kql) | T1087.002 | Medium/High | DeviceProcessEvents (MDE) |
 
+### Collection
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [Data Staging](azure-sentinel/collection/data-staging.kql) | T1074 | Medium/High | DeviceProcessEvents (MDE) |
+| [Email Forwarding Exfiltration](azure-sentinel/collection/email-forwarding-exfiltration.kql) | T1114.003 | High | OfficeActivity (Exchange) |
+
+### Command and Control
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [DNS Tunneling](azure-sentinel/command-and-control/dns-tunneling.kql) | T1572 | High | DnsEvents |
+| [Beaconing Pattern](azure-sentinel/command-and-control/beaconing-pattern.kql) | T1071.001 | High | DeviceNetworkEvents (MDE) |
+
+### Exfiltration
+
+| Rule | Technique | Severity | Data Source |
+|---|---|---|---|
+| [Unusual Outbound Traffic](azure-sentinel/exfiltration/unusual-outbound-traffic.kql) | T1048 | High | DeviceNetworkEvents (MDE) |
+
 ## Rule Format
 
 Every rule follows this structure:
@@ -149,15 +169,15 @@ See [ATTACK_MATRIX.md](ATTACK_MATRIX.md) for full tactic/technique mapping.
 - [x] **Active Directory Discovery** (T1087.002) — BloodHound / AD enumeration tools (adfind, sharphound)
 
 ### v0.4 — Exfiltration & C2 (+10 rules)
-- [ ] **Unusual Outbound Traffic** (T1048) — Egress volume anomaly from non-web servers
-- [ ] **DNS Tunneling Anomaly** (T1572) — High-entropy subdomains, TXT query bursts
-- [ ] **Beaconing Pattern Detection** (T1071.001) — Periodic HTTP/HTTPS connection interval analysis
+- [x] **Unusual Outbound Traffic** (T1048) — Egress volume anomaly from non-web servers
+- [x] **DNS Tunneling Anomaly** (T1572) — High-entropy subdomains, TXT query bursts
+- [x] **Beaconing Pattern Detection** (T1071.001) — Periodic HTTP/HTTPS connection interval analysis
 - [ ] **Large File Upload Anomaly** (T1030) — File uploads > 100MB via web / cloud storage
-- [ ] **Data Staging Detection** (T1074) — Archive creation (zip/rar/7z) on sensitive shares
+- [x] **Data Staging Detection** (T1074) — Archive creation (zip/rar/7z) on sensitive shares
 - [ ] **C2 Over WebSocket** (T1071.001) — Long-lived WebSocket connections to rare domains
 - [ ] **C2 Over HTTPS (JA3/S)** — JA3 hash clustering for known C2 frameworks
 - [ ] **Cloud Storage Exfiltration** (T1567.002) — Files uploaded to personal cloud (Dropbox, GDrive)
-- [ ] **Email Forwarding Exfiltration** (T1114.003) — Auto-forwarding rule creation to external domain
+- [x] **Email Forwarding Exfiltration** (T1114.003) — Auto-forwarding rule creation to external domain
 - [ ] **ICMP / Custom Protocol Tunneling** (T1571) — Non-DNS/HTTP outbound protocol anomalies
 
 ### v0.5 — Cloud-Specific & Kubernetes (+10 rules)
