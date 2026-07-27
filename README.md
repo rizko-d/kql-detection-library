@@ -5,6 +5,7 @@
 [![Hunting: 13](https://img.shields.io/badge/Hunting-13-39d0ff.svg)](hunting-queries/)
 [![Tools: 12](https://img.shields.io/badge/Tools-12-39d0ff.svg)](tools/)
 [![GitHub Actions](https://img.shields.io/badge/CI-passing-00e676.svg)](.github/workflows/validate.yml)
+[![Release v1.0.0](https://img.shields.io/badge/Release-v1.0.0-39d0ff.svg)](https://github.com/rizko-d/kql-detection-library/releases/tag/v1.0.0)
 
 **Azure Sentinel / Microsoft 365 Detection Rules Library** — curated KQL queries for threat detection, threat hunting, and security monitoring in Microsoft cloud environments.
 
