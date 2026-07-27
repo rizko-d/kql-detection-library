@@ -1,5 +1,11 @@
 # KQL Detection Library
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-00e676.svg)](LICENSE)
+[![Rules: 45](https://img.shields.io/badge/Rules-45-00e676.svg)](azure-sentinel/)
+[![Hunting: 13](https://img.shields.io/badge/Hunting-13-39d0ff.svg)](hunting-queries/)
+[![Tools: 12](https://img.shields.io/badge/Tools-12-39d0ff.svg)](tools/)
+[![GitHub Actions](https://img.shields.io/badge/CI-passing-00e676.svg)](.github/workflows/validate.yml)
+
 **Azure Sentinel / Microsoft 365 Detection Rules Library** — curated KQL queries for threat detection, threat hunting, and security monitoring in Microsoft cloud environments.
 
 ## Overview
@@ -303,27 +309,49 @@ dependency checker, and coverage `--check` on every push and PR.
 
 ## Deployment
 
-### Manual (Log Analytics)
-1. Open Azure Portal → Sentinel → Logs
-2. Paste the KQL query
-3. Tune time range and thresholds
-4. Click **+ New alert rule** → configure frequency / suppression
+### Automated (ARM / Terraform)
+```bash
+# Generate ARM template
+make deploy-arm   # → deploy/sentinel-rules.json
+# Generate Terraform config
+make deploy-tf    # → deploy/sentinel.tf
 
-### Automated (ARM / CLI) — coming in v0.7
-```powershell
-# Example using az CLI
-az deployment group create --resource-group rg-sentinel --template-file deploy-rule.json
+# Deploy with Azure CLI:
+az deployment group create -g rg-sentinel --template-file deploy/sentinel-rules.json
+# or: terraform init && terraform apply -var 'log_analytics_workspace_id=<id>'
 ```
+
+### Manual
+1. Open Azure Portal → Sentinel → Analytics → **Create** → **Scheduled query rule**
+2. Copy the KQL from the desired rule file
+3. Set query frequency, period, threshold, entity mappings
+
+### Prerequisites: Data Connectors
+See **[docs/data-connectors.md](docs/data-connectors.md)** for the exact Sentinel connector each rule depends on. Without the correct connector enabled, a rule produces zero results.
+
+
 
 ## Contributing
 
-1. Fork the repository
-2. Create a rule following the [format](#rule-format) above
-3. Add MITRE mapping to `mapping/mitre-attack.yaml`
-4. Add test case with sample data
-5. Run `python tools/rule-validator.py`
-6. Submit PR
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full workflow.
+
+Quick start:
+```bash
+git clone https://github.com/rizko-d/kql-detection-library.git
+cd kql-detection-library
+make check    # run validator + depcheck + coverage
+```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) — use freely, attribution appreciated.
+
+## Docs
+
+| Document | Description |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to add rules, hunts, and submit PRs |
+| [data-connectors.md](docs/data-connectors.md) | Sentinel connector prerequisites per rule |
+| [watchlist-integration.kql](docs/watchlist-integration.kql) | Dynamic allowlisting integration guide |
+| [fp-coverage.md](docs/fp-coverage.md) | False-positive hardening coverage report |
+| [ATTACK_MATRIX.md](ATTACK_MATRIX.md) | Auto-generated MITRE ATT&CK coverage matrix |
