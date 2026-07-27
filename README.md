@@ -6,9 +6,10 @@
 
 | Metric | Value |
 |---|---|
-| **Total Rules** | 45 detection rules + 10 hunting queries (current) — see [Roadmap](#roadmap) up to ~70 |
+| **Total Rules** | 45 detection rules + 13 hunting queries (current) — [Roadmap](#roadmap) complete ✅ |
 | **Tactics Covered** | 12 of 14 |
 | **Techniques Covered** | 45 of ~200 |
+| **Tools** | 12 zero-dep CLI tools + GitHub Actions CI |
 | **Target Platform** | Microsoft Sentinel (Log Analytics / KQL) |
 | **Rule Format** | Standardized KQL with MITRE ATT&CK frontmatter |
 
@@ -184,6 +185,11 @@ All tools are zero-dependency (Python stdlib only) and live in [`tools/`](tools/
 | `fp-report.py` | False-positive hardening score per rule (FP section + response + benign test row). |
 | `arm-exporter.py` | Export all rules as a Sentinel ARM template (`Microsoft.SecurityInsights/alertRules`). |
 | `terraform-exporter.py` | Export all rules as Terraform (`azurerm_sentinel_alert_rule_scheduled`). |
+| `workbook-generator.py` | Generate Sentinel Workbook JSON (rule inventory + pie chart). |
+| `navigator-export.py` | Export rules as ATT&CK Navigator heatmap layer JSON. |
+| `kql-test-framework.py` | Test case validation + expected-result checking. |
+| `sigma-to-kql.py` | Convert Sigma YAML rules to KQL. |
+| `test-simulator.py` | Generate synthetic datatable test fixtures from rule headers. |
 
 ```bash
 # Add a new rule end-to-end
@@ -283,17 +289,17 @@ dependency checker, and coverage `--check` on every push and PR.
 - [x] **Sentinel-as-code (Terraform)** (`terraform-exporter.py`) — `azurerm_sentinel_alert_rule_scheduled`
 - [x] **Rule Dependency Checker** (`rule-dependency-checker.py`) — Cross-ref rules ↔ test cases ↔ yaml ↔ matrix
 - [x] **False-Positive Coverage Report** (`fp-report.py`) — FP-hardening score per rule
-- [ ] **`test-simulator.py`** — Synthetic event generator per table schema (deferred to v0.8)
 
-### v0.8 — Advanced Features
-- [ ] **Sentinel Workbook Generator** — Auto-create Azure Workbook JSON from ruleset
-- [ ] **Tier-2: Correlation Rules** — Multi-event chain detection (e.g., user gets RDP → creates task → dumps LSASS)
-- [ ] **Tier-3: ML / Fusion Anomalies** — Time-series anomaly detection rules
-- [ ] **Cross-Workspace Hunting** — KQL queries spanning multiple Sentinel workspaces
-- [ ] **Watchlist Integration** — Dynamic allowlisting via Sentinel watchlists (corporate IP ranges, known-good hashes)
-- [ ] **KQL Unit Test Framework** — Automated `datatable`-based tests that assert expected results
-- [ ] **MITRE ATT&CK Navigator Layer** — Export rules as ATT&CK Navigator heatmap JSON
-- [ ] **Multi-Language Rule Converter** — Sigma → KQL translation mapper
+### v0.8 — Advanced Features ✅ COMPLETE
+- [x] **Sentinel Workbook Generator** (`workbook-generator.py`) — Auto-create Azure Workbook JSON from ruleset
+- [x] **Tier-2: Correlation Rules** — Multi-event chain detection (LSASS → RDP → Scheduled Task chain)
+- [x] **Tier-3: ML / Fusion Anomalies** — Z-score time-series anomaly detection (sign-in failure spike)
+- [x] **Cross-Workspace Hunting** — KQL queries using workspace() across multiple Sentinel workspaces
+- [x] **Watchlist Integration** — Dynamic allowlisting via Sentinel watchlists (docs + examples)
+- [x] **KQL Unit Test Framework** (`kql-test-framework.py`) — Automated test-case validation + expected-result checking
+- [x] **ATT&CK Navigator Layer** (`navigator-export.py`) — Export rules as ATT&CK Navigator heatmap JSON
+- [x] **Sigma → KQL Converter** (`sigma-to-kql.py`) — Basic Sigma detection rule → KQL translation
+- [x] **Test Simulator** (`test-simulator.py`) — Synthetic event generator (deferred from v0.7)
 
 ## Deployment
 

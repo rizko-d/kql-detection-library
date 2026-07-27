@@ -1,0 +1,45 @@
+// === WATCHLIST INTEGRATION EXAMPLES ===
+// KQL Detection Library — Watchlist Integration Guide
+//
+// Sentinel Watchlists let you maintain dynamic allow/deny lists that rules
+// reference without hard-coding values. This improves FP tuning (corporate IPs,
+// known-good hashes, admin accounts) and enables threat-intel-driven detection
+// (known-bad JA3 fingerprints, C2 domains, IoC hashes).
+//
+// Usage:
+//   1. Create a watchlist in Sentinel → Watchlists (e.g., "ja3_c2_known")
+//   2. Use _GetWatchlist('WatchlistName') in your KQL queries
+//   3. Update the watchlist via CSV upload or API as threat intel evolves
+
+// --- Example 1: Allow-list corporate IPs in brute-force detection ---
+// Instead of hard-coding IP ranges, maintain a CorporateIPs watchlist:
+let CorporateIPs = materialize(
+    _GetWatchlist("CorporateIPs")
+    | project IPPrefix = tostring(column_ifexists("IPPrefix", ""))
+);
+// Then in your rule, exclude those IPs:
+// ... | where IpAddress !startswith_any (CorporateIPs)
+
+// --- Example 2: JA3 fingerprint watchlist for C2 detection ---
+// Maintain a "C2_JA3_Fingerprints" watchlist updated from CTI feeds:
+let known_bad_ja3 = materialize(
+    _GetWatchlist("C2_JA3_Fingerprints")
+    | project JA3 = tolower(tostring(column_ifexists("JA3Hash", "")))
+);
+// ... | where JA3Hash in~ (known_bad_ja3)
+
+// --- Example 3: Admin account allowlist ---
+// Prevent alerts on legitimate admin activity:
+let Admins = materialize(
+    _GetWatchlist("AdminAccounts")
+    | project UserPrincipalName = tostring(column_ifexists("UPN", ""))
+);
+// ... | where UserPrincipalName !in~ (Admins)
+
+// --- Example 4: Known-bad domain watchlist ---
+// Source from CTI feeds, updated daily:
+let known_bad_domains = materialize(
+    _GetWatchlist("C2_Domains")
+    | project Domain = tolower(tostring(column_ifexists("Domain", "")))
+);
+// ... | where RemoteUrl has_any (known_bad_domains)

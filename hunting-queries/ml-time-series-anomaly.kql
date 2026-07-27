@@ -1,0 +1,51 @@
+// === HUNT ===
+// Technique: T1078 / T1098 — Time-series anomaly (Tier-3 ML/Fusion)
+// Tactic: Multiple
+// Hunt Hypothesis: A sudden spike in a metric — sign-in failures, privileged
+//   operations, or credential changes — that deviates from the account's
+//   rolling baseline suggests automated abuse (spray, bulk provisioning) or
+//   an ongoing intrusion.
+//
+// This is a lightweight time-series anomaly detector using z-scores. It builds
+// a 30-day rolling baseline per account (or per tenant) and flags the current
+// day's value if it exceeds 3 standard deviations above the norm.
+//
+// Data Source: SigninLogs, AuditLogs
+// Investigation Steps:
+//   1. For each metric (sign-in failures, credential adds, role assignments),
+//      compute the daily count and compare against the 30-day mean/stdev
+//   2. Flag days where the z-score >= 3 (significant anomaly)
+//   3. Pivot on the account/mailbox to drill into the specific events
+//   4. Rule out known business causes (onboarding week, migration)
+// Pivots:
+//   - Pivot on the account → full audit log for the anomalous day
+//   - Pivot on the source IP → other accounts affected from that IP
+//   - Correlate with identity risk events
+// === QUERY ===
+
+let baseline_window = 30d;
+let metric_window = 1d;
+let zscore_threshold = 3.0;
+
+// Per-user daily sign-in failures over the baseline
+let baseline = materialize(
+    SigninLogs
+    | where TimeGenerated between (ago(baseline_window + metric_window) .. ago(metric_window))
+    | where ResultType != "0"
+    | summarize DailyFailures = count() by UserPrincipalName, bin(TimeGenerated, 1d)
+    | summarize AvgFailures = avg(DailyFailures), StdevFailures = stdev(DailyFailures) by UserPrincipalName
+);
+
+// Current day's failures per user
+SigninLogs
+| where TimeGenerated > ago(metric_window)
+| where ResultType != "0"
+| summarize CurrentFailures = count() by UserPrincipalName
+| join kind=inner baseline on UserPrincipalName
+| extend ZScore = iff(StdevFailures > 0, (CurrentFailures - AvgFailures) / StdevFailures, 0.0)
+| where ZScore >= zscore_threshold
+| project
+    UserPrincipalName, CurrentFailures, AvgFailures, StdevFailures,
+    ZScore = round(ZScore, 2),
+    Alert = "Sign-in failure spike (z-score >= 3)"
+| sort by ZScore desc

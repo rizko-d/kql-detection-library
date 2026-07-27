@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8 — 2025-07-26
+### Added — Advanced Features (COMPLETE, final roadmap version)
+- **`workbook-generator.py`** — generate Sentinel Workbook JSON (rule inventory + tactic pie chart)
+- **`navigator-export.py`** — export rules as ATT&CK Navigator heatmap layer JSON (41 techniques)
+- **`test-simulator.py`** — synthetic event generator (deferred from v0.7, 9 table schemas)
+- **`sigma-to-kql.py`** — basic Sigma rule → KQL converter (field mapping, modifier support)
+- **`kql-test-framework.py`** — unit test framework (expected-result checking, coverage reporting)
+- **Tier-2 Correlation Rule** — LSASS dump → RDP lateral → scheduled task kill-chain hunting query
+- **Tier-3 ML Anomaly** — z-score time-series sign-in failure spike detection
+- **Cross-Workspace Hunting** — workspace()-based cross-tenant queries (3 hunt patterns)
+- **Watchlist Integration Guide** — docs/watchlist-integration.kql with 4 working examples
+### Changed
+- v0.7 `test-simulator.py` item moved from deferred to complete in v0.8
+- Updated README stats: 12 tools + CI, 13 hunting queries
+- **Roadmap fully complete — all v0.1–v0.8 delivered**
+
 ## v0.7 — 2025-07-26
 ### Added — Tooling & CI (7 of 8 items; test-simulator deferred to v0.8)
 - **`rule-scaffold.py`** — generate a rule/hunt from template + matching test case

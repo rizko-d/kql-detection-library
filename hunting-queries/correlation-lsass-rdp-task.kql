@@ -1,0 +1,71 @@
+// === HUNT ===
+// Technique: T1003.001 / T1021.001 / T1053.005 — Multi-event chain correlation
+// Tactic: Correlation (Tier-2)
+// Hunt Hypothesis: Real intrusions follow a chain — an attacker moves from
+//   Initial Access → Execution → Persistence → Lateral Movement. Correlating
+//   events across the kill-chain surfaces the full intrusion that individual
+//   alert rules (single-event) miss.
+//
+// This hunt joins three stages: LSASS access (credential dump) → RDP logon
+// (lateral) → scheduled task creation (persistence) — all by the same account
+// on the same source host within a short window. This is a textbook hands-on-
+// keyboard intrusion chain.
+//
+// Data Source: SecurityEvent (4663/4624/4698), DeviceProcessEvents (MDE)
+// Investigation Steps:
+//   1. For each account, collect matching events across the three stages
+//   2. Join the three stages and keep only chains that complete
+//   3. Rank by temporal closeness (all 3 stages within N minutes)
+//   4. Pivot on the account → full activity timeline
+// Pivots:
+//   - Pivot on the account → all hosts touched during the window
+//   - Pivot on the source host → credential theft artifacts
+//   - Correlate with the individual rules (lsass-memory-access, rdp-lateral-movement, scheduled-task-creation)
+// === QUERY ===
+
+let lookback = 1d;
+let chain_window = 4h;
+
+// Stage 1: LSASS access (credential dump)
+let stage1_creds =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4663
+    | where ObjectName has "lsass"
+    | summarize FirstSeen = min(TimeGenerated) by Account = SubjectUserName, SourceHost = Computer;
+
+// Stage 2: RDP lateral movement (type 10 logon from the same source account)
+let stage2_lateral =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4624
+    | where LogonType == 10
+    | where TargetUserName !endswith "$"
+    | where AccountType == "User"
+    | project LatTime = TimeGenerated, Account = TargetUserName, TargetHost = Computer, SourceIP = IpAddress;
+
+// Stage 3: Scheduled task creation (persistence on destination)
+let stage3_persist =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4698
+    | project PersistTime = TimeGenerated, Account = SubjectUserName, PersistHost = Computer;
+
+// Join the chain: LSASS → RDP → Scheduled Task, all by same account
+stage1_creds
+| join kind=inner stage2_lateral on Account
+| where LatTime between (FirstSeen .. (FirstSeen + chain_window))
+| join kind=inner stage3_persist on Account
+| where PersistTime between (LatTime .. (LatTime + chain_window))
+    and PersistHost == TargetHost
+| extend
+    ChainMinutes = datetime_diff('minute', PersistTime, FirstSeen),
+    Description = strcat(
+        "Kill-chain: Account '", Account, "' → LSASS dump on ", SourceHost,
+        " → RDP to ", TargetHost, " → scheduled task on ", PersistHost,
+        " within ", ChainMinutes, " minutes."
+    )
+| project
+    Account, SourceHost, TargetHost, PersistHost, FirstSeen, LatTime, PersistTime,
+    ChainMinutes, SourceIP, Description
+| sort by ChainMinutes asc

@@ -1,0 +1,45 @@
+// === HUNT ===
+// Technique: T1078 / T1098 — Cross-Workspace Anomaly Detection
+// Tactic: Discovery / Lateral Movement
+// Hunt Hypothesis: Threats span organizational boundaries. Attackers reuse the
+//   same IP addresses, credentials, and IoCs across multiple Azure tenants.
+//   Queries that union across workspaces surface cross-tenant patterns that
+//   single-workspace detections miss.
+// Data Source: SigninLogs, AADServicePrincipalSignInLogs (cross-workspace via workspace())
+// Investigation Steps:
+//   1. Union matching tables across workspace() references
+//   2. Compare IPs, accounts, or SP IDs appearing in multiple tenants
+//   3. Flag anomalies that span workspace boundaries
+// Pivots:
+//   - Pivot on the IoC → all workspaces where it appears
+//   - Pivot on the workspace → other cross-tenant anomalies
+// === QUERY ===
+
+// --- Hunt 1: Cross-workspace admin login comparison ---
+// Find accounts that signed into multiple workspaces' tenants from the same IP
+union workspace('Sentinel-Prod').SigninLogs, workspace('Sentinel-Dev').SigninLogs
+| where TimeGenerated > ago(7d)
+| where ResultType == "0"
+| summarize Workspaces = make_set(TenantId, 5), SignInCount = count()
+    by UserPrincipalName, IPAddress
+| where array_length(Workspaces) >= 2
+| project UserPrincipalName, IPAddress, Workspaces, SignInCount
+
+// --- Hunt 2: Common IoC across workspaces ---
+// Check if a suspicious IP appears across multiple tenants
+let suspicious_ip = "185.220.101.50";
+union workspace('Sentinel-Prod').SigninLogs, workspace('Sentinel-Dev').SigninLogs
+| where TimeGenerated > ago(1d)
+| where IPAddress == suspicious_ip
+| project TimeGenerated, TenantId, UserPrincipalName, AppDisplayName
+| sort by TimeGenerated desc
+
+// --- Hunt 3: Cross-workspace service principal sign-ins ---
+// Same SP appearing in multiple workspaces from unexpected IPs
+union workspace('Sentinel-Prod').AADServicePrincipalSignInLogs,
+      workspace('Sentinel-Dev').AADServicePrincipalSignInLogs
+| where TimeGenerated > ago(7d)
+| summarize Workspaces = make_set(TenantId, 5), IPs = make_set(IPAddress, 20)
+    by ServicePrincipalId
+| where array_length(IPs) >= 3
+| project ServicePrincipalId, IPs, Workspaces
